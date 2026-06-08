@@ -109,10 +109,48 @@ describe('Web tool provider', () => {
     }
   })
 
-  it('truncates oversized fetch responses instead of failing', async () => {
+  it('rejects fetch responses when content-length exceeds max_bytes', async () => {
     vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
       headers: {
         'content-length': '26',
+        'content-type': 'text/plain'
+      }
+    }))
+    const config = KunCapabilitiesConfig.parse({
+      web: {
+        enabled: true,
+        fetchEnabled: true,
+        allowDomains: ['docs.example.test']
+      }
+    })
+    const host = new LocalToolHost({
+      registry: new CapabilityRegistry(buildWebToolProviders(config.web).providers)
+    })
+
+    const result = await host.execute({
+      callId: 'call_1',
+      toolName: 'web_fetch',
+      arguments: { url: 'https://docs.example.test/large', max_bytes: 10 }
+    }, buildContext())
+
+    expect(result.item).toMatchObject({ kind: 'tool_result', isError: true })
+    if (result.item.kind === 'tool_result') {
+      expect(result.item.output).toMatchObject({
+        error: {
+          code: 'fetch_failed',
+          message: expect.stringContaining('content exceeds')
+        },
+        telemetry: {
+          policy: 'allowed',
+          provider: 'fetch'
+        }
+      })
+    }
+  })
+
+  it('truncates oversized fetch responses via streaming when content-length is unknown', async () => {
+    vi.stubGlobal('fetch', async () => new Response('abcdefghijklmnopqrstuvwxyz', {
+      headers: {
         'content-type': 'text/plain'
       }
     }))
@@ -137,12 +175,12 @@ describe('Web tool provider', () => {
     if (result.item.kind === 'tool_result') {
       expect(result.item.output).toMatchObject({
         text: 'abcdefghij',
-        byteCount: 26,
+        byteCount: 10,
         truncated: true,
         telemetry: {
           policy: 'allowed',
           provider: 'fetch',
-          byteCount: 26
+          byteCount: 10
         }
       })
     }
