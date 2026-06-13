@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { normalizePathSeparators, resolveTargetPathWithinWorkspace } from './workspace-paths'
 import {
   getKunRuntimeSettings,
   type AppSettingsV1,
@@ -17,7 +18,9 @@ import {
   type ImageGenClient
 } from '../../../kun/src/adapters/tool/image-gen-tool-provider.js'
 
-const INFOGRAPHIC_ASSET_DIR = 'assets'
+// Matches WORKSPACE_IMAGE_DIR in workspace-files.ts so infographics land in
+// the same workspace-level folder as pasted images.
+const INFOGRAPHIC_IMAGE_DIR = 'img'
 // Portrait reads best for infographics; mapImageSize('3:4', '1K') → 768x1024.
 const INFOGRAPHIC_ASPECT_RATIO = '3:4'
 const INFOGRAPHIC_SIZE_TIER = '1K'
@@ -91,18 +94,24 @@ export async function requestWriteInfographic(
   const ext = image.mimeType === 'image/jpeg' ? 'jpg' : image.mimeType === 'image/webp' ? 'webp' : 'png'
   const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14)
   const fileName = `infographic-${stamp}-${randomBytes(2).toString('hex')}.${ext}`
-  const documentDir = dirname(filePath)
-  const absolutePath = join(documentDir, INFOGRAPHIC_ASSET_DIR, fileName)
+  let absolutePath: string
+  let markdownPath: string
   try {
-    await mkdir(join(documentDir, INFOGRAPHIC_ASSET_DIR), { recursive: true })
+    const imageDir = await resolveTargetPathWithinWorkspace(INFOGRAPHIC_IMAGE_DIR, workspaceRoot)
+    await mkdir(imageDir, { recursive: true })
+    absolutePath = join(imageDir, fileName)
     await writeFile(absolutePath, image.data)
+    // imageDir is canonicalized (symlinks resolved), so derive the document
+    // directory from the same canonical root to keep the relative link clean.
+    const documentDir = join(dirname(imageDir), dirname(relativeToRoot))
+    markdownPath = normalizePathSeparators(relative(documentDir, absolutePath))
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
 
   return {
     ok: true,
-    relativePath: `${INFOGRAPHIC_ASSET_DIR}/${fileName}`,
+    relativePath: markdownPath,
     absolutePath,
     fileName
   }

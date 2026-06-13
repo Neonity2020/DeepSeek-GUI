@@ -107,10 +107,10 @@ export function WriteInlineAgent({
           </button>
         </form>
       ) : (
-        <div className="flex items-center gap-1.5">
+        <div className="write-inline-agent-pill" role="group">
           <button
             type="button"
-            className="write-inline-agent-trigger"
+            className="write-inline-agent-option"
             aria-label={t('writeInlineEditOpen')}
             title={t('writeInlineEditOpen')}
             onPointerDown={(event) => {
@@ -133,35 +133,38 @@ export function WriteInlineAgent({
             <span>{t('writeInlineEditOpen')}</span>
           </button>
           {infographicEnabled && onGenerateInfographic ? (
-            <button
-              type="button"
-              className="write-inline-agent-trigger"
-              aria-label={infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}
-              title={infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}
-              disabled={infographicInFlight}
-              onPointerDown={(event) => {
-                event.stopPropagation()
-                if (event.pointerType !== 'mouse') event.preventDefault()
-              }}
-              onPointerUp={(event) => {
-                if (event.pointerType === 'mouse') return
-                event.preventDefault()
-                event.stopPropagation()
-                onGenerateInfographic()
-              }}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onClick={onGenerateInfographic}
-            >
-              {infographicInFlight ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.9} />
-              ) : (
-                <ImageIcon className="h-3.5 w-3.5" strokeWidth={1.9} />
-              )}
-              <span>{infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}</span>
-            </button>
+            <>
+              <span className="write-inline-agent-divider" aria-hidden="true" />
+              <button
+                type="button"
+                className="write-inline-agent-option"
+                aria-label={infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}
+                title={infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}
+                disabled={infographicInFlight}
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  if (event.pointerType !== 'mouse') event.preventDefault()
+                }}
+                onPointerUp={(event) => {
+                  if (event.pointerType === 'mouse') return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onGenerateInfographic()
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+                onClick={onGenerateInfographic}
+              >
+                {infographicInFlight ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.9} />
+                ) : (
+                  <ImageIcon className="h-3.5 w-3.5" strokeWidth={1.9} />
+                )}
+                <span>{infographicInFlight ? t('writeInfographicGenerating') : t('writeInfographicGenerate')}</span>
+              </button>
+            </>
           ) : null}
         </div>
       )}

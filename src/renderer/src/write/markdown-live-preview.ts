@@ -11,9 +11,9 @@ import {
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 import {
-  resolveWriteMarkdownResource,
-  resolveWriteMarkdownResourcePath
-} from '../components/write/WriteMarkdownPreview'
+  initialWriteMarkdownImageSrc,
+  resolveWriteMarkdownImage
+} from './markdown-image'
 import {
   CodeBlockToolbarWidget,
   CodeBlockWidget,
@@ -68,12 +68,12 @@ const markDeco = Decoration.mark({ class: 'cm-write-md-mark' })
 const codeBlockLineDeco = Decoration.line({ class: 'cm-write-md-codeblock-line' })
 
 const writeMarkdownHighlight = HighlightStyle.define([
-  { tag: tags.heading1, fontSize: '1.95em', fontWeight: '700', letterSpacing: '-0.035em' },
-  { tag: tags.heading2, fontSize: '1.45em', fontWeight: '650', letterSpacing: '-0.025em' },
-  { tag: tags.heading3, fontSize: '1.18em', fontWeight: '650' },
-  { tag: tags.heading4, fontSize: '1.05em', fontWeight: '650' },
+  { tag: tags.heading1, fontSize: '1.875em', fontWeight: '700', letterSpacing: '-0.02em' },
+  { tag: tags.heading2, fontSize: '1.5em', fontWeight: '650', letterSpacing: '-0.015em' },
+  { tag: tags.heading3, fontSize: '1.25em', fontWeight: '650' },
+  { tag: tags.heading4, fontSize: '1.06em', fontWeight: '650' },
   { tag: tags.heading5, fontSize: '1em', fontWeight: '650' },
-  { tag: tags.heading6, fontSize: '0.96em', fontWeight: '650', color: 'var(--ds-text-muted)' },
+  { tag: tags.heading6, fontSize: '0.95em', fontWeight: '650', color: 'var(--ds-text-muted)' },
   { tag: tags.processingInstruction, color: 'var(--ds-text-faint)', opacity: '0.58' },
   { tag: tags.strong, fontWeight: '700' },
   { tag: tags.emphasis, fontStyle: 'italic' },
@@ -87,7 +87,7 @@ const writeMarkdownHighlight = HighlightStyle.define([
   },
   { tag: tags.link, color: 'var(--ds-accent)', textDecoration: 'underline' },
   { tag: tags.url, color: 'var(--ds-text-faint)', fontSize: '0.86em' },
-  { tag: tags.quote, color: 'var(--ds-text-muted)', fontStyle: 'italic' },
+  { tag: tags.quote, color: 'var(--ds-text-muted)' },
   { tag: tags.meta, color: 'var(--ds-text-faint)' }
 ])
 
@@ -103,9 +103,9 @@ const writeMarkdownLiveTheme = EditorView.theme({
     textAlign: 'center'
   },
   '&.cm-write-live-preview .cm-write-md-blockquote-line': {
-    borderLeft: '3px solid color-mix(in srgb, var(--ds-accent) 42%, transparent)',
-    color: 'var(--ds-text-muted)',
-    paddingLeft: '0.9rem'
+    borderLeft: '3px solid color-mix(in srgb, var(--ds-text) 78%, transparent)',
+    color: 'var(--ds-text)',
+    paddingLeft: '1em'
   },
   '&.cm-write-live-preview .cm-write-md-link-text': {
     color: 'var(--ds-accent)',
@@ -157,12 +157,17 @@ function markdownImageFromSource(source: string, filePath?: string | null): {
   alt: string
   localPath?: string
 } | null {
-  const match = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/.exec(source.trim())
+  const match = /^!\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))(?:\s+["'][^"']*["'])?\s*\)$/.exec(source.trim())
   if (!match) return null
-  const resolved = resolveWriteMarkdownResource(match[2], filePath)
-  if (!resolved) return null
-  const localPath = resolveWriteMarkdownResourcePath(match[2], filePath)
-  return { alt: match[1] || '', src: resolved, ...(localPath ? { localPath } : {}) }
+  const rawSrc = match[2] ?? match[3] ?? ''
+  const resolved = resolveWriteMarkdownImage(rawSrc, filePath)
+  if (!resolved.fallbackSrc && !resolved.localPath) return null
+  const initialSrc = initialWriteMarkdownImageSrc(rawSrc, filePath) ?? ''
+  return {
+    alt: match[1] || '',
+    src: initialSrc,
+    ...(resolved.localPath ? { localPath: resolved.localPath } : {})
+  }
 }
 
 function splitTableLine(line: string): string[] {
@@ -309,7 +314,8 @@ function collectMarkdownCodeBlockRangesFromState(
 
 export const markdownLivePreviewTestInternals = {
   collectMarkdownCodeBlockRangesFromState,
-  collectRevealLinesFromState
+  collectRevealLinesFromState,
+  markdownImageFromSource
 }
 
 function addFencedCodeLineDecorations(
@@ -576,9 +582,6 @@ function buildMarkdownDecorations(view: EditorView): DecorationSet {
           case 'FencedCode':
           case 'CodeBlock':
             return false
-          case 'ATXHeading1':
-            ranges.push({ from: line.from, to: line.from, deco: centerLineDeco })
-            break
           case 'Blockquote':
             ranges.push({ from: line.from, to: line.from, deco: blockquoteLineDeco })
             break

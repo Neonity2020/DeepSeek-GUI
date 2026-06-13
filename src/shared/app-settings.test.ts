@@ -704,6 +704,23 @@ describe('claw runtime prompts', () => {
     expect(prompt).not.toContain('scheduled-task tools')
   })
 
+  it('tells Claw agents to use the image tool when image generation is configured', () => {
+    const state = settings()
+    state.agents.kun.imageGeneration = {
+      enabled: true,
+      baseUrl: 'https://images.example.test/v1',
+      apiKey: 'sk-image',
+      model: 'test-image-model',
+      defaultSize: '1024x1024',
+      timeoutMs: 180000
+    }
+
+    const prompt = buildClawRuntimePrompt(state, 'draw a small logo')
+
+    expect(prompt).toContain('Image generation is enabled for this Claw agent')
+    expect(prompt).toContain('generate_image')
+  })
+
   it('parses managed IM prompts into compact display text', () => {
     const parsed = parseClawUserPromptForDisplay([
       '[Claw managed instructions]',

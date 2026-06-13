@@ -233,6 +233,36 @@ describe('app-ipc-schemas', () => {
     expect('quickChat' in (payload.agents ?? {})).toBe(false)
   })
 
+  it('accepts persisted claw channel welcome markers in full settings snapshots', () => {
+    const payload = settingsPatchSchema.parse({
+      claw: {
+        channels: [{
+          id: 'channel-1',
+          provider: 'weixin',
+          label: 'weixin agent',
+          enabled: true,
+          model: 'auto',
+          threadId: '',
+          workspaceRoot: '',
+          agentProfile: {
+            name: 'weixin agent',
+            description: '',
+            identity: '',
+            personality: '',
+            userContext: '',
+            replyRules: ''
+          },
+          conversations: [],
+          welcomeSentAt: '2026-06-10T00:00:00.000Z',
+          createdAt: '2026-06-10T00:00:00.000Z',
+          updatedAt: '2026-06-10T00:00:00.000Z'
+        }]
+      }
+    })
+
+    expect(payload.claw?.channels?.[0]?.welcomeSentAt).toBe('2026-06-10T00:00:00.000Z')
+  })
+
   it('accepts partial provider profiles in settings patches', () => {
     const payload = settingsPatchSchema.parse({
       provider: {

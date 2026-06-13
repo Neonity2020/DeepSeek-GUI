@@ -21,9 +21,9 @@ import { harden } from 'rehype-harden'
 import type { PluggableList } from 'unified'
 import { useTranslation } from 'react-i18next'
 import {
-  resolveWriteMarkdownResource,
-  resolveWriteMarkdownResourcePath
-} from '@shared/write-markdown-resource'
+  initialWriteMarkdownImageSrc,
+  loadWriteMarkdownImage
+} from '../../write/markdown-image'
 import {
   highlightCodeHtml,
   renderFallbackCodeHtml
@@ -70,12 +70,6 @@ function plainTextFallback(content: string): ReactElement {
       {content}
     </pre>
   )
-}
-
-function isMissingImageIpc(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.includes('No handler registered for') ||
-    message.includes('readWorkspaceImage is not a function')
 }
 
 function extractText(node: ReactNode): string {
@@ -268,29 +262,22 @@ function ResolvedMarkdownImage({
   filePath,
   ...props
 }: ResolvedMarkdownImageProps): ReactElement {
-  const [resolvedSrc, setResolvedSrc] = useState(() => resolveWriteMarkdownResource(src, filePath))
-  const [loadFailed, setLoadFailed] = useState(false)
+  const [resolvedSrc, setResolvedSrc] = useState(() => initialWriteMarkdownImageSrc(src, filePath))
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    setLoadFailed(false)
-    const localPath = resolveWriteMarkdownResourcePath(src, filePath)
-    const fallback = resolveWriteMarkdownResource(src, filePath)
-    setResolvedSrc(fallback)
+    setLoadError(null)
+    setResolvedSrc(initialWriteMarkdownImageSrc(src, filePath))
 
-    if (!localPath || typeof window.dsGui?.readWorkspaceImage !== 'function') return
-
-    void window.dsGui.readWorkspaceImage({ path: localPath })
+    void loadWriteMarkdownImage(src, filePath)
       .then((result) => {
         if (cancelled) return
         if (result.ok) {
-          setResolvedSrc(result.dataUrl)
+          setResolvedSrc(result.src)
         } else {
-          setLoadFailed(true)
+          setLoadError(result.message)
         }
-      })
-      .catch((error) => {
-        if (!cancelled && !isMissingImageIpc(error)) setLoadFailed(true)
       })
 
     return () => {
@@ -298,9 +285,12 @@ function ResolvedMarkdownImage({
     }
   }, [src, filePath])
 
-  if (loadFailed) {
+  if (loadError) {
     return (
-      <span className="inline-flex max-w-full items-center rounded-lg border border-red-200/70 bg-red-50/80 px-2 py-1 text-[12px] text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
+      <span
+        className="inline-flex max-w-full items-center rounded-lg border border-red-200/70 bg-red-50/80 px-2 py-1 text-[12px] text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
+        title={loadError}
+      >
         {alt || src || 'Image could not be loaded'}
       </span>
     )

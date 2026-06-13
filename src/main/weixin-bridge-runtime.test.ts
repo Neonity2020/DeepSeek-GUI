@@ -39,4 +39,27 @@ describe('weixin bridge runtime', () => {
     expect(Object.keys(weixinBridgeRuntimeInternals)).not.toContain('buildWeixinBridgeAdapterSource')
     expect(Object.keys(weixinBridgeRuntimeInternals)).not.toContain('parseNodeVersion')
   })
+
+  it('extracts webhook generated files for WeChat media delivery, capped at three', () => {
+    const { webhookGeneratedFiles } = weixinBridgeRuntimeInternals
+
+    expect(webhookGeneratedFiles({
+      ok: true,
+      reply: 'done',
+      files: [
+        { path: '/ws/.deepseekgui-images/cat.png', fileName: 'cat.png' },
+        { path: '/ws/out/report.pdf' },
+        { unrelated: true },
+        { path: '/ws/a.png' },
+        { path: '/ws/b.png' }
+      ]
+    })).toEqual([
+      { path: '/ws/.deepseekgui-images/cat.png', fileName: 'cat.png' },
+      { path: '/ws/out/report.pdf', fileName: 'report.pdf' },
+      { path: '/ws/a.png', fileName: 'a.png' }
+    ])
+
+    expect(webhookGeneratedFiles({ ok: true, reply: 'no files' })).toEqual([])
+    expect(webhookGeneratedFiles({ files: 'not-an-array' })).toEqual([])
+  })
 })

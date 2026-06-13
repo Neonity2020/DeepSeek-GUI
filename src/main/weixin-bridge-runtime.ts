@@ -805,6 +805,93 @@ function buildWebhookMessage(message: WeixinMessage, accountId: string, text: st
   }
 }
 
+const MAX_WEBHOOK_FILES_PER_REPLY = 3
+
+type WeixinOutboundFile = { path: string; fileName: string }
+
+/**
+ * Generated files the Claw webhook attached to its reply (already gated and
+ * workspace-validated on the GUI side). Capped defensively; the webhook caps
+ * extraction at the same count.
+ */
+function webhookGeneratedFiles(result: JsonRecord): WeixinOutboundFile[] {
+  if (!Array.isArray(result.files)) return []
+  const files: WeixinOutboundFile[] = []
+  for (const entry of result.files) {
+    const record = asRecord(entry)
+    const path = recordString(record, 'path')
+    if (!path) continue
+    files.push({
+      path,
+      fileName: recordString(record, 'fileName') || path.split(/[\\/]/).pop() || 'attachment'
+    })
+    if (files.length >= MAX_WEBHOOK_FILES_PER_REPLY) break
+  }
+  return files
+}
+
+type SendWeixinMediaFile = (params: {
+  filePath: string
+  to: string
+  text: string
+  opts: { baseUrl: string; token?: string; timeoutMs?: number; contextToken?: string }
+  cdnBaseUrl: string
+}) => Promise<{ messageId: string }>
+
+let sendWeixinMediaFilePromise: Promise<SendWeixinMediaFile> | null = null
+
+/**
+ * The CDN upload + media message protocol lives in the bundled WeChat plugin.
+ * Loaded lazily so a broken install degrades to a text notice instead of
+ * failing this whole module at startup.
+ */
+function loadSendWeixinMediaFile(): Promise<SendWeixinMediaFile> {
+  sendWeixinMediaFilePromise ??= import('@tencent-weixin/openclaw-weixin/dist/src/messaging/send-media.js')
+    .then((mod) => mod.sendWeixinMediaFile)
+    .catch((error) => {
+      sendWeixinMediaFilePromise = null
+      throw error
+    })
+  return sendWeixinMediaFilePromise
+}
+
+/**
+ * Upload each generated file to the WeChat C2C CDN and deliver it as an
+ * image / video / file message (routed by MIME). A failed file degrades to a
+ * text notice instead of failing the whole reply.
+ */
+async function sendGeneratedFilesWeixin(
+  account: WeixinAccount,
+  to: string,
+  files: readonly WeixinOutboundFile[],
+  contextToken: string | undefined
+): Promise<void> {
+  for (const file of files) {
+    try {
+      const sendWeixinMediaFile = await loadSendWeixinMediaFile()
+      await sendWeixinMediaFile({
+        filePath: file.path,
+        to,
+        text: '',
+        opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
+        cdnBaseUrl: account.cdnBaseUrl
+      })
+    } catch (error) {
+      logWarn('weixin-bridge', 'Failed to send generated file to WeChat.', {
+        accountId: account.accountId,
+        filePath: file.path,
+        message: error instanceof Error ? error.message : String(error)
+      })
+      await sendMessageWeixin({
+        account,
+        to,
+        text: `文件 ${file.fileName} 发送失败，请稍后再试。`,
+        contextToken
+      }).catch(() => undefined)
+    }
+  }
+}
+
 async function postToDeepSeekGuiWebhook(message: WeixinMessage, accountId: string): Promise<JsonRecord> {
   const settings = await resolveRuntimeContext()
   const text = textFromItemList(message.item_list)
@@ -857,13 +944,17 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
       if (signal.aborted) return
       const result = await postToDeepSeekGuiWebhook(message, account.accountId)
       const reply = recordString(result, 'reply') || recordString(result, 'text')
-      if (!reply) return
-      await sendMessageWeixin({
-        account,
-        to,
-        text: reply,
-        contextToken
-      })
+      if (reply) {
+        await sendMessageWeixin({
+          account,
+          to,
+          text: reply,
+          contextToken
+        })
+      }
+      // Generated files (e.g. generate_image output) arrive alongside the
+      // text reply and go out as native image / file messages.
+      await sendGeneratedFilesWeixin(account, to, webhookGeneratedFiles(result), contextToken)
     }
     const chained = (senderChains.get(to) ?? Promise.resolve())
       .then(task)
@@ -1164,5 +1255,6 @@ export function stopWeixinBridgeRuntime(): void {
 
 export const weixinBridgeRuntimeInternals = {
   buildBaseInfo,
-  normalizeAccountId
+  normalizeAccountId,
+  webhookGeneratedFiles
 }

@@ -216,6 +216,61 @@ describe('thread event sink runtime errors', () => {
       'error'
     ])
   })
+
+  it('settles terminal turn failures instead of keeping the composer busy', () => {
+    const blocks: ChatBlock[] = [
+      { kind: 'user', id: 'user-1', text: 'work toward goal' },
+      {
+        kind: 'tool',
+        id: 'tool-1',
+        summary: 'Running command',
+        status: 'running',
+        toolKind: 'command_execution'
+      }
+    ]
+    const state = {
+      activeThreadId: 'thr-1',
+      blocks,
+      busy: true,
+      currentTurnId: 'turn-1',
+      currentTurnUserId: 'user-1',
+      error: null,
+      runtimeErrorDetail: null,
+      liveAssistant: '',
+      liveReasoning: '',
+      turnStartedAtByUserId: { 'user-1': Date.now() - 1000 },
+      turnDurationByUserId: {},
+      turnReasoningFirstAtByUserId: {},
+      turnReasoningLastAtByUserId: {},
+      watchTurnCompletion: { 'thr-1': true },
+      unreadThreadIds: { 'thr-1': true },
+      queuedMessages: []
+    } as unknown as ChatState
+    const set = (partial: Partial<ChatState> | ((value: ChatState) => Partial<ChatState>)): void => {
+      Object.assign(state, typeof partial === 'function' ? partial(state) : partial)
+    }
+
+    buildThreadEventSink(set, () => state).onError(
+      new Error(JSON.stringify({
+        code: 'http_400',
+        message: 'model stream exploded',
+        severity: 'error'
+      })),
+      { terminal: true }
+    )
+
+    expect(state.busy).toBe(false)
+    expect(state.currentTurnId).toBeNull()
+    expect(state.currentTurnUserId).toBeNull()
+    expect(state.error).toBe('model stream exploded')
+    expect(state.runtimeErrorDetail).toContain('Code: http_400')
+    expect(state.watchTurnCompletion).toEqual({})
+    expect(state.unreadThreadIds).toEqual({})
+    expect(state.blocks.map((block) => ('status' in block ? block.status : block.kind))).toEqual([
+      'user',
+      'error'
+    ])
+  })
 })
 
 describe('pending Claw Feishu mirrors', () => {

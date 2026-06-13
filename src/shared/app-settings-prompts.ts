@@ -166,7 +166,7 @@ export function buildClawImAgentInstructions(channel: ClawImChannelV1 | null | u
 }
 
 export function buildClawRuntimePrompt(
-  settings: Pick<AppSettingsV1, 'claw'>,
+  settings: Pick<AppSettingsV1, 'claw'> & Partial<Pick<AppSettingsV1, 'agents'>>,
   prompt: string,
   options: { channel?: ClawImChannelV1 | null } = {}
 ): string {
@@ -182,6 +182,12 @@ export function buildClawRuntimePrompt(
   if (prefix) instructions.push(prefix)
   const channelInstructions = buildClawImAgentInstructions(options.channel)
   if (channelInstructions) instructions.push(channelInstructions)
+  const imageGeneration = settings.agents?.kun?.imageGeneration
+  if (imageGeneration?.enabled && imageGeneration.baseUrl.trim() && imageGeneration.apiKey.trim() && imageGeneration.model.trim()) {
+    instructions.push(
+      'Image generation is enabled for this Claw agent. When the user asks you to create, draw, generate, or edit an image, call the `generate_image` tool. After the tool succeeds the image file is delivered to the user automatically (IM chats receive it as a picture message), so simply confirm the image is ready — never paste base64 data, local file paths, or fabricated links into your reply.'
+    )
+  }
   if (instructions.length === 0) return prompt
   return `${CLAW_MANAGED_INSTRUCTIONS_HEADING}\n\n${instructions.join('\n\n')}\n\n---\n${CLAW_CURRENT_USER_REQUEST_HEADING}\n${prompt}`
 }

@@ -1,5 +1,8 @@
 import { Image } from '@tiptap/extension-image'
-import { resolveWriteMarkdownResource } from '@shared/write-markdown-resource'
+import {
+  initialWriteMarkdownImageSrc,
+  loadWriteMarkdownImage
+} from '../markdown-image'
 
 export type WriteLocalImageOptions = {
   /** Absolute path of the markdown file being edited; relative image
@@ -27,9 +30,35 @@ export const WriteLocalImage = Image.extend<WriteLocalImageOptions>({
       dom.alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : ''
       const applySrc = (src: unknown): void => {
         const raw = typeof src === 'string' ? src : ''
-        const resolved = resolveWriteMarkdownResource(raw, this.options.getFilePath() || null)
-        dom.src = resolved ?? raw
+        const filePath = this.options.getFilePath() || null
+        const initialSrc = initialWriteMarkdownImageSrc(raw, filePath)
+        if (initialSrc) {
+          dom.src = initialSrc
+        } else {
+          dom.removeAttribute('src')
+        }
+        dom.classList.remove('write-rich-image-error')
+        dom.removeAttribute('title')
         dom.dataset.rawSrc = raw
+        void loadWriteMarkdownImage(raw, filePath)
+          .then((result) => {
+            if (dom.dataset.rawSrc !== raw) return
+            if (result.ok) {
+              dom.src = result.src
+              dom.classList.remove('write-rich-image-error')
+              dom.removeAttribute('title')
+              return
+            }
+            dom.removeAttribute('src')
+            dom.classList.add('write-rich-image-error')
+            dom.title = result.message
+          })
+          .catch((error) => {
+            if (dom.dataset.rawSrc !== raw) return
+            dom.removeAttribute('src')
+            dom.classList.add('write-rich-image-error')
+            dom.title = error instanceof Error ? error.message : String(error)
+          })
       }
       applySrc(node.attrs.src)
       return {

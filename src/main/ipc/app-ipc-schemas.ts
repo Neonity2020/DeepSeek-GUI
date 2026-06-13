@@ -393,6 +393,7 @@ const clawImChannelPatchSchema = z.object({
   platformCredential: clawImPlatformCredentialPatchSchema.optional(),
   remoteSession: clawImRemoteSessionPatchSchema.optional(),
   conversations: z.array(clawImConversationPatchSchema).max(512).optional(),
+  welcomeSentAt: z.string().max(128).optional(),
   createdAt: z.string().max(128).optional(),
   updatedAt: z.string().max(128).optional()
 }).strict()

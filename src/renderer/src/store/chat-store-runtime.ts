@@ -1053,17 +1053,19 @@ export function buildThreadEventSink(
       void get().refreshThreads()
       void get().drainQueuedMessages()
     },
-    onError: (err) => {
+    onError: (err, options) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
       const state = get()
       const message = formatRuntimeError(err)
       const detail = runtimeErrorDetail(err)
+      const terminal = options?.terminal === true
       const interrupted = isInterruptSettledError(err, message)
       takePendingClawFeishuMirror(state.currentTurnId)
       set((s) => {
         const wasBusy = s.busy
+        const shouldSettleTurn = terminal || !wasBusy || interrupted
         const out = flushLiveBlocks(s, {
           ...finalizeTurnTiming(s),
           error: interrupted ? null : message,
@@ -1073,14 +1075,29 @@ export function buildThreadEventSink(
         // should stay visible so the user can interrupt a stuck turn. The
         // watchdog (re-armed below) will eventually time out if the turn
         // never recovers.
-        if (!wasBusy || interrupted) {
+        if (shouldSettleTurn) {
           out.busy = false
           out.currentTurnId = null
           out.currentTurnUserId = null
           out.blocks = settlePendingRuntimeWorkAfterInterrupt(out.blocks ?? s.blocks)
+          if (terminal && s.activeThreadId) {
+            const w = { ...s.watchTurnCompletion }
+            delete w[s.activeThreadId]
+            clearWatchedCompletionNotification(s.activeThreadId)
+            out.watchTurnCompletion = w
+            const u = { ...s.unreadThreadIds }
+            delete u[s.activeThreadId]
+            out.unreadThreadIds = u
+          }
         }
         return out
       })
+      if (terminal) {
+        syncTurnCompletionPoll(set, get)
+        void get().refreshThreads?.()
+        void get().drainQueuedMessages?.()
+        return
+      }
       // Re-arm the watchdog so a stuck SSE stream doesn't leave the UI
       // permanently in the busy state.
       if (get().busy) armBusyWatchdog(set, get)

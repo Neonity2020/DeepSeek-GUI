@@ -38,6 +38,52 @@ export class ImageGenHttpError extends Error {
   }
 }
 
+/**
+ * Node's fetch reports every network failure as a bare `TypeError: fetch
+ * failed`, hiding the actionable detail (DNS, refused connection, TLS, …)
+ * in the `cause` chain. Flatten that chain into one readable message.
+ */
+export function describeNetworkError(error: unknown): string {
+  const parts: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (current instanceof AggregateError && current.errors.length > 0) {
+      current = current.errors[0]
+      continue
+    }
+    if (!(current instanceof Error)) {
+      parts.push(String(current))
+      break
+    }
+    const code = (current as { code?: unknown }).code
+    const codeText = typeof code === 'string' ? code : ''
+    const message = current.message.trim()
+    if (message) {
+      parts.push(codeText && !message.includes(codeText) ? `${message} (${codeText})` : message)
+    } else if (codeText) {
+      parts.push(codeText)
+    }
+    current = current.cause
+  }
+  const unique = parts.filter((part, index) => parts.indexOf(part) === index)
+  return unique.join(': ') || 'unknown network error'
+}
+
+function imageFetchFailure(
+  url: string,
+  error: unknown,
+  request: { timeoutMs: number }
+): Error {
+  const target = url.split('?')[0]
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    return new Error(`image request to ${target} timed out after ${request.timeoutMs}ms`, { cause: error })
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return new Error(`image request to ${target} was canceled`, { cause: error })
+  }
+  return new Error(`image request to ${target} failed: ${describeNetworkError(error)}`, { cause: error })
+}
+
 export interface ImageGenClient {
   id: string
   generate(request: ImageGenRequest): Promise<GeneratedImage>
@@ -357,11 +403,18 @@ export class OpenAiCompatImageClient implements ImageGenClient {
     request: { timeoutMs: number; signal: AbortSignal }
   ): Promise<GeneratedImage> {
     const signal = withTimeout(request.signal, request.timeoutMs)
-    let response = await fetch(url, { method: 'POST', ...init(true), signal })
+    const post = async (includeResponseFormat: boolean): Promise<Response> => {
+      try {
+        return await fetch(url, { method: 'POST', ...init(includeResponseFormat), signal })
+      } catch (error) {
+        throw imageFetchFailure(url, error, request)
+      }
+    }
+    let response = await post(true)
     if (!response.ok && response.status >= 400 && response.status < 500) {
       const errorBody = await response.text()
       if (!/response_format/i.test(errorBody)) throw new ImageGenHttpError(response.status, errorBody)
-      response = await fetch(url, { method: 'POST', ...init(false), signal })
+      response = await post(false)
     }
     if (!response.ok) {
       throw new ImageGenHttpError(response.status, await response.text())
@@ -372,7 +425,12 @@ export class OpenAiCompatImageClient implements ImageGenClient {
       return { data: Buffer.from(entry.b64_json, 'base64'), mimeType: 'image/png' }
     }
     if (entry?.url) {
-      const download = await fetch(entry.url, { signal })
+      let download: Response
+      try {
+        download = await fetch(entry.url, { signal })
+      } catch (error) {
+        throw imageFetchFailure(entry.url, error, request)
+      }
       if (!download.ok) throw new ImageGenHttpError(download.status, await download.text())
       const mimeType = download.headers.get('content-type')?.split(';')[0] || 'image/png'
       return { data: Buffer.from(await download.arrayBuffer()), mimeType }

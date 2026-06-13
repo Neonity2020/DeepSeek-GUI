@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -43,7 +43,9 @@ function fakeClient(): ImageGenClient & { requests: ImageGenRequest[] } {
 
 describe('write infographic service', () => {
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), 'write-infographic-'))
+    // realpath: macOS tmpdir lives behind a /var -> /private/var symlink and
+    // the service canonicalizes workspace paths the same way.
+    workspace = realpathSync(mkdtempSync(join(tmpdir(), 'write-infographic-')))
   })
 
   afterEach(() => {
@@ -68,7 +70,7 @@ describe('write infographic service', () => {
     expect(result).toMatchObject({ ok: false, message: expect.stringContaining('inside the write workspace') })
   })
 
-  it('generates a portrait infographic next to the document and returns a markdown-ready path', async () => {
+  it('saves the infographic into the workspace img folder and returns a markdown-ready path', async () => {
     const client = fakeClient()
     const result = await requestWriteInfographic(settingsWithImageGen(), {
       text: '季度营收增长 25%，主要来自海外市场。',
@@ -78,8 +80,8 @@ describe('write infographic service', () => {
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.relativePath).toMatch(/^assets\/infographic-\d{14}-[0-9a-f]{4}\.png$/)
-    expect(result.absolutePath).toBe(join(workspace, 'notes', 'assets', result.fileName))
+    expect(result.relativePath).toMatch(/^\.\.\/img\/infographic-\d{14}-[0-9a-f]{4}\.png$/)
+    expect(result.absolutePath).toBe(join(workspace, 'img', result.fileName))
     expect(existsSync(result.absolutePath)).toBe(true)
     expect(readFileSync(result.absolutePath, 'utf8')).toBe('fake-png-bytes')
 
@@ -88,6 +90,20 @@ describe('write infographic service', () => {
     expect(client.requests[0].size).toBe('768x1024')
     expect(client.requests[0].prompt).toContain('季度营收增长 25%')
     expect(client.requests[0].prompt).toContain('infographic')
+  })
+
+  it('links the image without ../ when the document sits at the workspace root', async () => {
+    const client = fakeClient()
+    const result = await requestWriteInfographic(settingsWithImageGen(), {
+      text: 'root-level document',
+      filePath: join(workspace, 'doc.md'),
+      workspaceRoot: workspace
+    }, { client })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.relativePath).toMatch(/^img\/infographic-\d{14}-[0-9a-f]{4}\.png$/)
+    expect(result.absolutePath).toBe(join(workspace, 'img', result.fileName))
   })
 
   it('prefers an explicit defaultSize over the portrait default', async () => {

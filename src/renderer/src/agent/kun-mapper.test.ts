@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { chatBlockFromItem, dispatchKunRuntimeEvent, mergeChatBlocks } from './kun-mapper'
 import type { CoreRuntimeEventJson, CoreTurnItemJson } from './kun-contract'
-import type { ThreadEventSink } from './types'
+import type { ThreadErrorOptions, ThreadEventSink } from './types'
 
 function makeSink(): ThreadEventSink {
   return {
@@ -179,14 +179,16 @@ describe('review mapping', () => {
 describe('create_plan tool mapping', () => {
   it('surfaces turn failure messages from Kun lifecycle events', async () => {
     let capturedError: string | null = null
+    let capturedErrorOptions: ThreadErrorOptions | null = null
     let capturedRuntimeError: unknown = null
     const sink: ThreadEventSink = {
       ...makeSink(),
       onRuntimeError: (event) => {
         capturedRuntimeError = event
       },
-      onError: (error) => {
+      onError: (error, options) => {
         capturedError = error.message
+        capturedErrorOptions = options ?? null
       }
     }
 
@@ -208,6 +210,7 @@ describe('create_plan tool mapping', () => {
       message: 'model stream exploded',
       severity: 'error'
     })
+    expect(capturedErrorOptions).toEqual({ terminal: true })
   })
 
   it('routes live error items to runtime error timeline events without fatal stream errors', async () => {

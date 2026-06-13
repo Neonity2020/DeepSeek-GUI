@@ -163,16 +163,27 @@ export class ImageWidget extends WidgetType {
     })
     const image = document.createElement('img')
     image.className = 'cm-write-md-image'
-    image.src = this.src
+    if (this.src) image.src = this.src
     image.alt = this.alt
     image.loading = 'lazy'
     wrapper.appendChild(image)
     if (this.localPath && typeof window.dsGui?.readWorkspaceImage === 'function') {
       void window.dsGui.readWorkspaceImage({ path: this.localPath })
         .then((result) => {
-          if (result.ok) image.src = result.dataUrl
+          if (result.ok) {
+            image.src = result.dataUrl
+            wrapper.classList.remove('cm-write-md-image-error')
+            return
+          }
+          image.removeAttribute('src')
+          wrapper.classList.add('cm-write-md-image-error')
+          wrapper.dataset.error = result.message
         })
-        .catch(() => undefined)
+        .catch((error) => {
+          image.removeAttribute('src')
+          wrapper.classList.add('cm-write-md-image-error')
+          wrapper.dataset.error = error instanceof Error ? error.message : String(error)
+        })
     }
     return wrapper
   }

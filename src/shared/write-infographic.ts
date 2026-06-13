@@ -3,9 +3,9 @@ export const WRITE_INFOGRAPHIC_MAX_TEXT_CHARS = 6_000
 export type WriteInfographicRequest = {
   /** Selected document text the infographic should summarize. */
   text: string
-  /** Absolute path of the markdown document the image will sit next to. */
+  /** Absolute path of the markdown document that will embed the image. */
   filePath: string
-  /** Active write workspace root; the generated file must stay inside it. */
+  /** Active write workspace root; the image is saved to its img/ folder. */
   workspaceRoot: string
 }
 

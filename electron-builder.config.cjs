@@ -94,8 +94,10 @@ module.exports = {
     '!**/*.ts',
     '!**/tsconfig*.json',
     '!**/README*',
-    '!**/CHANGELOG*',
-    '!**/node_modules/openclaw/**/*'
+    '!**/CHANGELOG*'
+    // node_modules/openclaw (the vendor/openclaw-shim file: dep) must ship:
+    // the WeChat bridge imports @tencent-weixin/openclaw-weixin/dist at
+    // runtime to send media, and that chain resolves openclaw/plugin-sdk/*.
   ],
   artifactName: `DeepSeek-GUI-${artifactVersion}-\${os}-\${arch}.\${ext}`,
   publish: [

@@ -205,17 +205,17 @@ function buildEditorTheme(appearance: 'source' | 'live'): Extension {
       backgroundColor: 'transparent',
       fontFamily: sourceMode
         ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
-        : 'Georgia, Charter, "Iowan Old Style", "Noto Serif SC", serif',
-      fontSize: sourceMode ? '14px' : '15px'
+        : "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+      fontSize: sourceMode ? '14px' : '16px'
     },
     '.cm-scroller': {
       overflow: 'auto',
-      lineHeight: sourceMode ? '1.75' : '1.85',
+      lineHeight: '1.75',
       backgroundColor: 'transparent'
     },
     '.cm-content': {
       minHeight: '100%',
-      padding: '26px 24px 56px',
+      padding: sourceMode ? '26px 24px 56px' : 'clamp(40px, 7vh, 72px) 24px 120px',
       caretColor: 'var(--ds-text)'
     },
     '.cm-cursor, .cm-dropCursor': {

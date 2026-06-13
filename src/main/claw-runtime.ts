@@ -64,7 +64,7 @@ import {
   type ThreadRecordJson
 } from './claw-runtime-helpers'
 
-const MAX_FEISHU_FILE_UPLOAD_BYTES = 50 * 1024 * 1024
+const MAX_IM_FILE_UPLOAD_BYTES = 50 * 1024 * 1024
 const CLAW_IM_APPROVAL_POLICY = 'auto'
 const CLAW_IM_SANDBOX_MODE = 'danger-full-access'
 
@@ -786,7 +786,7 @@ export class ClawRuntime {
     }
   }
 
-  private async resolveFeishuGeneratedFiles(
+  private async resolveImGeneratedFiles(
     files: readonly ClawGeneratedFileV1[],
     workspaceRoot: string,
     context: Record<string, unknown>
@@ -797,7 +797,7 @@ export class ClawRuntime {
     try {
       realRoot = await realpath(resolve(root))
     } catch (error) {
-      this.deps.logError('claw-feishu', 'Failed to resolve Feishu file workspace root', {
+      this.deps.logError('claw-im', 'Failed to resolve IM file workspace root', {
         ...context,
         workspaceRoot: root,
         message: errorMessage(error)
@@ -812,7 +812,7 @@ export class ClawRuntime {
         const realFile = await realpath(resolve(file.path))
         const relativePath = relative(realRoot, realFile)
         if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-          this.deps.logError('claw-feishu', 'Skipping generated file outside the Feishu workspace', {
+          this.deps.logError('claw-im', 'Skipping generated file outside the IM workspace', {
             ...context,
             filePath: file.path,
             workspaceRoot: root
@@ -822,12 +822,12 @@ export class ClawRuntime {
         if (seen.has(realFile)) continue
         const fileStat = await stat(realFile)
         if (!fileStat.isFile()) continue
-        if (fileStat.size > MAX_FEISHU_FILE_UPLOAD_BYTES) {
-          this.deps.logError('claw-feishu', 'Skipping generated file because it is too large for Feishu upload', {
+        if (fileStat.size > MAX_IM_FILE_UPLOAD_BYTES) {
+          this.deps.logError('claw-im', 'Skipping generated file because it is too large for IM upload', {
             ...context,
             filePath: realFile,
             bytes: fileStat.size,
-            maxBytes: MAX_FEISHU_FILE_UPLOAD_BYTES
+            maxBytes: MAX_IM_FILE_UPLOAD_BYTES
           })
           continue
         }
@@ -838,7 +838,7 @@ export class ClawRuntime {
           fileName: file.fileName || realFile.split(/[\\/]/).pop() || 'attachment'
         })
       } catch (error) {
-        this.deps.logError('claw-feishu', 'Skipping generated file that cannot be read for Feishu upload', {
+        this.deps.logError('claw-im', 'Skipping generated file that cannot be read for IM upload', {
           ...context,
           filePath: file.path,
           message: errorMessage(error)
@@ -1168,7 +1168,7 @@ export class ClawRuntime {
 
     if (shouldDirectSendExistingGeneratedFilesForPrompt(message.content)) {
       const existingThreadId = conversation?.localThreadId.trim() || channel.threadId.trim()
-      const existingFiles = await this.resolveFeishuGeneratedFiles(
+      const existingFiles = await this.resolveImGeneratedFiles(
         await this.recentGeneratedFilesForThread(settings, existingThreadId, workspaceRoot, {
           purpose: 'direct-existing-file-lookup',
           channelId,
@@ -1308,7 +1308,7 @@ export class ClawRuntime {
     }
 
     const filesToSend = result.ok && shouldSendGeneratedFilesForPrompt(message.content)
-      ? await this.resolveFeishuGeneratedFiles(result.files ?? [], workspaceRoot, {
+      ? await this.resolveImGeneratedFiles(result.files ?? [], workspaceRoot, {
           purpose: 'agent-file-resolve',
           channelId,
           chatId: message.chatId,
@@ -1666,7 +1666,27 @@ export class ClawRuntime {
         conversation,
         remoteSession: remoteSession ?? undefined
       })
-      writeJson(res, result.ok ? 200 : 500, result.ok ? { ...result, reply: `${welcomePrefix}${result.text ?? ''}` } : result)
+      if (!result.ok) {
+        writeJson(res, 500, result)
+        return
+      }
+      // Deliverable generated files (e.g. generate_image output) ride along in
+      // the response so push-capable bridges (WeChat) can upload them after the
+      // text reply. Gated by the same prompt heuristic as the Feishu path.
+      const files = shouldSendGeneratedFilesForPrompt(prompt)
+        ? await this.resolveImGeneratedFiles(
+            result.files ?? [],
+            this.resolveIncomingWorkspaceRoot(settings, channel, conversation, remoteSession ?? undefined),
+            {
+              purpose: 'im-webhook-file-resolve',
+              provider,
+              channelId: channel?.id,
+              threadId: result.threadId,
+              turnId: result.turnId
+            }
+          )
+        : []
+      writeJson(res, 200, { ...result, files, reply: `${welcomePrefix}${result.text ?? ''}` })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.deps.logError('claw-webhook', 'Claw IM webhook request failed', { message })
