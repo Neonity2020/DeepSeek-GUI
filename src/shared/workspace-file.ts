@@ -109,6 +109,17 @@ export type WorkspaceImageReadResult =
     }
   | { ok: false; message: string }
 
+export type WorkspacePdfReadResult =
+  | {
+      ok: true
+      path: string
+      dataBase64: string
+      mimeType: 'application/pdf'
+      size: number
+      mtimeMs: number
+    }
+  | { ok: false; message: string }
+
 export type WorkspaceFileResolveResult =
   | {
       ok: true

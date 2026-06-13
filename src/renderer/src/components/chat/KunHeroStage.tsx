@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { PanelTop } from 'lucide-react'
-import { AnimatedWorkLogo } from './AnimatedWorkLogo'
+import { KunStateFigure } from './AnimatedWorkLogo'
 
 export function KunHeroStage(): ReactElement {
   return (
@@ -33,7 +33,7 @@ export function KunHeroStage(): ReactElement {
         </div>
         <div className="ds-runtime-wake-core">
           <span className="ds-runtime-wake-ring" />
-          <AnimatedWorkLogo active phase="lead" size="md" className="ds-runtime-wake-logo" />
+          <KunStateFigure kind="sleep" className="ds-runtime-wake-kun" />
         </div>
       </div>
     </div>

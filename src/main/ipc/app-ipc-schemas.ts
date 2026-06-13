@@ -27,11 +27,18 @@ import {
   KUN_USAGE_TEMPLATE
 } from '../../shared/kun-endpoints'
 import {
-  CLAW_MODEL_IDS,
   IMAGE_GENERATION_PROTOCOLS,
+  MUSIC_GENERATION_PROTOCOLS,
   MODEL_ENDPOINT_FORMATS,
+  MODEL_PROVIDER_INPUT_MODALITIES,
+  MODEL_PROVIDER_MESSAGE_PARTS,
+  MODEL_REASONING_EFFORTS,
+  MODEL_REASONING_REQUEST_PROTOCOLS,
   SCHEDULE_MODEL_IDS,
   SCHEDULE_REASONING_EFFORT_IDS,
+  SPEECH_TO_TEXT_PROTOCOLS,
+  TEXT_TO_SPEECH_PROTOCOLS,
+  VIDEO_GENERATION_PROTOCOLS,
   WRITE_INLINE_COMPLETION_MODEL_IDS
 } from '../../shared/app-settings'
 import { DESKTOP_COMMANDS } from '../../shared/kun-gui-api'
@@ -39,6 +46,7 @@ import { GUI_UPDATE_CHANNELS } from '../../shared/gui-update'
 import { KEYBOARD_SHORTCUT_COMMANDS } from '../../shared/keyboard-shortcuts'
 import { WRITE_EXPORT_FORMATS } from '../../shared/write-export'
 import { WRITE_INFOGRAPHIC_MAX_TEXT_CHARS } from '../../shared/write-infographic'
+import { SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS, SPEECH_TRANSCRIPTION_MAX_DURATION_MS } from '../../shared/speech-to-text'
 
 const MAX_BODY_BYTES = 2_000_000
 const MAX_PATH_LENGTH = 4_096
@@ -82,6 +90,14 @@ export const confirmDialogPayloadSchema = z
     detail: z.string().max(8_000).optional(),
     confirmLabel: z.string().trim().max(200).optional(),
     cancelLabel: z.string().trim().max(200).optional()
+  })
+  .strict()
+
+export const providerProbePayloadSchema = z
+  .object({
+    baseUrl: trimmedString(MAX_URL_LENGTH),
+    apiKey: z.string().max(8_192),
+    endpointFormat: z.enum(MODEL_ENDPOINT_FORMATS)
   })
   .strict()
 
@@ -176,7 +192,6 @@ const clawRunModeSchema = z.enum(['agent', 'plan'])
 const clawImProviderSchema = z.enum(['feishu', 'weixin'])
 const clawScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at'])
 const clawTaskStatusSchema = z.enum(['idle', 'running', 'success', 'error'])
-const clawModelSchema = z.enum(CLAW_MODEL_IDS)
 const scheduleReasoningEffortSchema = z.enum(SCHEDULE_REASONING_EFFORT_IDS)
 const writeInlineCompletionModelSchema = z.union([
   z.enum(WRITE_INLINE_COMPLETION_MODEL_IDS),
@@ -184,6 +199,37 @@ const writeInlineCompletionModelSchema = z.union([
 ])
 const modelEndpointFormatSchema = z.enum(MODEL_ENDPOINT_FORMATS)
 const imageGenerationProtocolSchema = z.enum(IMAGE_GENERATION_PROTOCOLS)
+const speechToTextProtocolSchema = z.enum(SPEECH_TO_TEXT_PROTOCOLS)
+const textToSpeechProtocolSchema = z.enum(TEXT_TO_SPEECH_PROTOCOLS)
+const musicGenerationProtocolSchema = z.enum(MUSIC_GENERATION_PROTOCOLS)
+const videoGenerationProtocolSchema = z.enum(VIDEO_GENERATION_PROTOCOLS)
+const speechToTextSettingsSchema = z.object({
+  enabled: z.boolean(),
+  providerId: z.string().trim().max(64),
+  protocol: speechToTextProtocolSchema,
+  baseUrl: z.string().trim().max(MAX_URL_LENGTH),
+  apiKey: z.string().max(MAX_BODY_BYTES),
+  model: z.string().trim().max(128),
+  language: z.string().trim().max(16),
+  timeoutMs: z.number().int().positive().max(600_000)
+}).strict()
+const modelProviderInputModalitySchema = z.enum(MODEL_PROVIDER_INPUT_MODALITIES)
+const modelProviderMessagePartSchema = z.enum(MODEL_PROVIDER_MESSAGE_PARTS)
+const modelReasoningEffortSchema = z.enum(MODEL_REASONING_EFFORTS)
+const modelReasoningRequestProtocolSchema = z.enum(MODEL_REASONING_REQUEST_PROTOCOLS)
+const modelProfilePatchSchema = z.object({
+  aliases: z.array(z.string().trim().min(1).max(128)).max(50).optional(),
+  contextWindowTokens: z.number().int().positive().max(10_000_000).optional(),
+  inputModalities: z.array(modelProviderInputModalitySchema).max(8).optional(),
+  outputModalities: z.array(modelProviderInputModalitySchema).max(8).optional(),
+  supportsToolCalling: z.boolean().optional(),
+  messageParts: z.array(modelProviderMessagePartSchema).max(8).optional(),
+  reasoning: z.object({
+    supportedEfforts: z.array(modelReasoningEffortSchema).min(1).max(8),
+    defaultEffort: modelReasoningEffortSchema,
+    requestProtocol: modelReasoningRequestProtocolSchema
+  }).strict().optional()
+}).strict()
 
 const modelProviderPatchSchema = z.object({
   apiKey: z.string().max(MAX_BODY_BYTES).optional(),
@@ -195,8 +241,32 @@ const modelProviderPatchSchema = z.object({
     baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
     endpointFormat: modelEndpointFormatSchema.optional(),
     models: z.array(z.string().trim().min(1).max(128)).max(200).optional(),
+    modelProfiles: z.record(
+      z.string().trim().min(1).max(128),
+      modelProfilePatchSchema.nullable()
+    ).optional(),
     image: z.object({
       protocol: imageGenerationProtocolSchema.optional(),
+      baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+      models: z.array(z.string().trim().min(1).max(128)).max(50).optional()
+    }).strict().nullable().optional(),
+    speech: z.object({
+      protocol: speechToTextProtocolSchema.optional(),
+      baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+      models: z.array(z.string().trim().min(1).max(128)).max(50).optional()
+    }).strict().nullable().optional(),
+    textToSpeech: z.object({
+      protocol: textToSpeechProtocolSchema.optional(),
+      baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+      models: z.array(z.string().trim().min(1).max(128)).max(50).optional()
+    }).strict().nullable().optional(),
+    music: z.object({
+      protocol: musicGenerationProtocolSchema.optional(),
+      baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+      models: z.array(z.string().trim().min(1).max(128)).max(50).optional()
+    }).strict().nullable().optional(),
+    video: z.object({
+      protocol: videoGenerationProtocolSchema.optional(),
       baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
       models: z.array(z.string().trim().min(1).max(128)).max(50).optional()
     }).strict().nullable().optional()
@@ -271,7 +341,54 @@ const kunRuntimePatchSchema = z.object({
     model: z.string().trim().max(128).optional(),
     defaultSize: z.string().trim().max(16).optional(),
     timeoutMs: z.number().int().positive().max(600_000).optional()
-  }).strict().optional()
+  }).strict().optional(),
+  speechToText: z.object({
+    enabled: z.boolean().optional(),
+    providerId: z.string().trim().max(64).optional(),
+    protocol: speechToTextProtocolSchema.optional(),
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+    model: z.string().trim().max(128).optional(),
+    language: z.string().trim().max(16).optional(),
+    timeoutMs: z.number().int().positive().max(600_000).optional()
+  }).strict().optional(),
+  textToSpeech: z.object({
+    enabled: z.boolean().optional(),
+    providerId: z.string().trim().max(64).optional(),
+    protocol: textToSpeechProtocolSchema.optional(),
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+    model: z.string().trim().max(128).optional(),
+    voice: z.string().trim().max(128).optional(),
+    format: z.string().trim().max(16).optional(),
+    timeoutMs: z.number().int().positive().max(900_000).optional()
+  }).strict().optional(),
+  musicGeneration: z.object({
+    enabled: z.boolean().optional(),
+    providerId: z.string().trim().max(64).optional(),
+    protocol: musicGenerationProtocolSchema.optional(),
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+    model: z.string().trim().max(128).optional(),
+    format: z.string().trim().max(16).optional(),
+    timeoutMs: z.number().int().positive().max(1_800_000).optional()
+  }).strict().optional(),
+  videoGeneration: z.object({
+    enabled: z.boolean().optional(),
+    providerId: z.string().trim().max(64).optional(),
+    protocol: videoGenerationProtocolSchema.optional(),
+    baseUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
+    apiKey: z.string().max(MAX_BODY_BYTES).optional(),
+    model: z.string().trim().max(128).optional(),
+    defaultDuration: z.number().int().positive().max(30).optional(),
+    defaultResolution: z.string().trim().max(32).optional(),
+    timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+    pollIntervalMs: z.number().int().positive().max(120_000).optional()
+  }).strict().optional(),
+  modelProfiles: z.record(
+    z.string().trim().min(1).max(128),
+    modelProfilePatchSchema.nullable()
+  ).optional()
 }).strict()
 
 const logPatchSchema = z.object({
@@ -319,11 +436,24 @@ const writeInlineCompletionPatchSchema = z.object({
   longMaxTokens: z.number().int().min(64).max(1_024).optional()
 }).strict()
 
+const writeQuickActionSchema = z.object({
+  id: trimmedString(64),
+  label: z.string().max(64).optional(),
+  prompt: z.string().max(4_000).optional(),
+  mode: z.enum(['edit', 'chat']).optional()
+}).strict()
+
+const writeSelectionAssistPatchSchema = z.object({
+  infographicPrompt: z.string().max(4_000).optional(),
+  quickActions: z.array(writeQuickActionSchema).max(24).optional()
+}).strict()
+
 const writeSettingsPatchSchema = z.object({
   defaultWorkspaceRoot: defaultPathSchema,
   activeWorkspaceRoot: defaultPathSchema,
   workspaces: z.array(trimmedString(MAX_PATH_LENGTH)).max(256).optional(),
-  inlineCompletion: writeInlineCompletionPatchSchema.optional()
+  inlineCompletion: writeInlineCompletionPatchSchema.optional(),
+  selectionAssist: writeSelectionAssistPatchSchema.optional()
 }).strict()
 
 const clawSkillPatchSchema = z.object({
@@ -341,6 +471,7 @@ const clawImPatchSchema = z.object({
   weixinBridgeUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   openClawGatewayUrl: z.string().trim().max(MAX_URL_LENGTH).optional(),
   workspaceRoot: defaultPathSchema,
+  providerId: z.string().trim().max(64).optional(),
   model: z.string().trim().min(1).max(128).optional(),
   mode: clawRunModeSchema.optional(),
   responseTimeoutMs: z.number().int().min(5_000).max(600_000).optional()
@@ -398,6 +529,7 @@ const clawImChannelPatchSchema = z.object({
   provider: clawImProviderSchema.optional(),
   label: z.string().max(512).optional(),
   enabled: z.boolean().optional(),
+  providerId: z.string().trim().max(64).optional(),
   model: z.string().trim().min(1).max(128).optional(),
   threadId: z.string().max(MAX_ID_LENGTH).optional(),
   workspaceRoot: defaultPathSchema,
@@ -423,6 +555,8 @@ const clawTaskPatchSchema = z.object({
   enabled: z.boolean().optional(),
   prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
   workspaceRoot: defaultPathSchema,
+  clawChannelId: z.string().trim().max(MAX_ID_LENGTH).optional(),
+  providerId: z.string().trim().max(64).optional(),
   model: z.string().trim().min(1).max(128).optional(),
   reasoningEffort: scheduleReasoningEffortSchema.optional(),
   mode: clawRunModeSchema.optional(),
@@ -467,6 +601,8 @@ const scheduledTaskPatchSchema = z.object({
   enabled: z.boolean().optional(),
   prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
   workspaceRoot: defaultPathSchema,
+  clawChannelId: z.string().trim().max(MAX_ID_LENGTH).optional(),
+  providerId: z.string().trim().max(64).optional(),
   model: z.string().trim().min(1).max(128).optional(),
   reasoningEffort: scheduleReasoningEffortSchema.optional(),
   mode: clawRunModeSchema.optional(),
@@ -483,6 +619,7 @@ const scheduledTaskPatchSchema = z.object({
 const scheduleSettingsPatchSchema = z.object({
   enabled: z.boolean().optional(),
   defaultWorkspaceRoot: defaultPathSchema,
+  providerId: z.string().trim().max(64).optional(),
   model: z.union([z.enum(SCHEDULE_MODEL_IDS), trimmedString(128)]).optional(),
   mode: clawRunModeSchema.optional(),
   promptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
@@ -655,6 +792,16 @@ export const workspaceFileWatchPayloadSchema = z
   })
   .strict()
 
+export const writeRetrievalPayloadSchema = z
+  .object({
+    workspaceRoot: defaultPathSchema,
+    currentFilePath: defaultPathSchema,
+    query: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
+    maxSnippets: z.number().int().min(1).max(8).optional(),
+    includeCurrentFile: z.boolean().optional()
+  })
+  .strict()
+
 export const writeExportPayloadSchema = z
   .object({
     path: trimmedString(MAX_PATH_LENGTH),
@@ -773,6 +920,15 @@ export const writeInfographicPayloadSchema = z
   })
   .strict()
 
+export const speechTranscribePayloadSchema = z
+  .object({
+    audioBase64: z.string().min(1).max(SPEECH_TRANSCRIPTION_MAX_BASE64_CHARS),
+    mimeType: trimmedString(64),
+    durationMs: z.number().int().positive().max(SPEECH_TRANSCRIPTION_MAX_DURATION_MS).optional(),
+    speechToText: speechToTextSettingsSchema.optional()
+  })
+  .strict()
+
 export const shellOpenExternalUrlSchema = trimmedString(MAX_URL_LENGTH).refine(
   isSafeOpenExternalUrl,
   { message: 'Only http, https, and mailto URLs are allowed.' }
@@ -811,7 +967,9 @@ export const clawTaskFromTextPayloadSchema = z
   .object({
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
     channelId: z.string().trim().min(1).max(MAX_ID_LENGTH).nullable().optional(),
+    providerId: z.string().trim().max(64).nullable().optional(),
     modelHint: z.string().trim().min(1).max(128).nullable().optional(),
+    reasoningEffort: scheduleReasoningEffortSchema.nullable().optional(),
     mode: z.enum(['agent', 'plan']).nullable().optional()
   })
   .strict()
@@ -820,7 +978,10 @@ export const scheduleTaskFromTextPayloadSchema = z
   .object({
     text: z.string().trim().min(1).max(MAX_CHANNEL_TEXT_LENGTH),
     workspaceRoot: defaultPathSchema,
+    clawChannelId: z.string().trim().min(1).max(MAX_ID_LENGTH).nullable().optional(),
+    providerId: z.string().trim().max(64).nullable().optional(),
     modelHint: z.string().trim().min(1).max(128).nullable().optional(),
+    reasoningEffort: scheduleReasoningEffortSchema.nullable().optional(),
     mode: z.enum(['agent', 'plan']).nullable().optional()
   })
   .strict()

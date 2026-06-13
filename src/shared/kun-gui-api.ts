@@ -4,6 +4,8 @@ import type {
   ClawRunResult,
   ClawTaskFromTextResult,
   ClawRuntimeStatus,
+  ModelEndpointFormat,
+  ModelProviderModelProfileV1,
   ScheduleRunResult,
   ScheduleRuntimeStatus,
   ScheduleTaskFromTextResult
@@ -25,6 +27,7 @@ import type {
   WorkspaceFileSaveAsPayload,
   WorkspaceFileSaveAsResult,
   WorkspaceImageReadResult,
+  WorkspacePdfReadResult,
   WorkspaceDirectoryCreatePayload,
   WorkspaceDirectoryCreateResult,
   WorkspaceDirectoryListResult,
@@ -53,11 +56,30 @@ import type {
   WriteInfographicResult
 } from './write-infographic'
 import type {
+  SpeechTranscriptionRequest,
+  SpeechTranscriptionResult
+} from './speech-to-text'
+import type {
+  WriteRetrievalRequest,
+  WriteRetrievalResult
+} from './write-retrieval'
+import type {
   WriteExportPayload,
   WriteExportResult,
   WriteRichClipboardPayload,
   WriteRichClipboardResult
 } from './write-export'
+
+export type KunRuntimeStatusPayload = {
+  state: 'starting' | 'running' | 'restarting' | 'crashed' | 'failed' | 'stopped'
+  source: string
+  message?: string
+  stderrTail?: string
+  attempt?: number
+  maxAttempts?: number
+  rolledBack?: boolean
+  at: string
+}
 
 export type RuntimeRequestResult = { ok: boolean; status: number; body: string }
 export type WorkspacePickResult = { canceled: boolean; path: string | null }
@@ -111,13 +133,22 @@ export type ClawChannelMirrorResult =
   | { ok: true }
   | { ok: false; message: string }
 export type UpstreamModelsResult =
-  | { ok: true; modelIds: string[]; modelGroups?: ModelProviderModelGroup[] }
+  | { ok: true; modelIds: string[]; defaultModelId?: string; modelGroups?: ModelProviderModelGroup[] }
   | { ok: false; message: string }
 export type ModelProviderModelGroup = {
   providerId: string
   label: string
   modelIds: string[]
+  modelProfiles?: Record<string, ModelProviderModelProfileV1>
 }
+export type ModelProviderProbeRequest = {
+  baseUrl: string
+  apiKey: string
+  endpointFormat: ModelEndpointFormat
+}
+export type ModelProviderProbeResult =
+  | { ok: true; latencyMs: number; modelIds: string[] }
+  | { ok: false; message: string }
 export type ClawImInstallQrResult =
   | { ok: true; url: string; deviceCode: string; userCode: string; interval: number; expireIn: number }
   | { ok: false; message: string }
@@ -140,8 +171,11 @@ export type KunGuiApi = {
   platform: string
   getSettings: () => Promise<AppSettingsV1>
   setSettings: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
+  saveSettingsSilent: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
   runtimeRequest: (path: string, method?: string, body?: string) => Promise<RuntimeRequestResult>
+  restartRuntime: () => Promise<void>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
+  probeModelProvider: (payload: ModelProviderProbeRequest) => Promise<ModelProviderProbeResult>
   getClawStatus: () => Promise<ClawRuntimeStatus>
   runClawTask: (taskId: string) => Promise<ClawRunResult>
   getScheduleStatus: () => Promise<ScheduleRuntimeStatus>
@@ -171,6 +205,7 @@ export type KunGuiApi = {
   resolveWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileResolveResult>
   readWorkspaceFile: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
   readWorkspaceImage: (options: WorkspaceFileTarget) => Promise<WorkspaceImageReadResult>
+  readWorkspacePdf: (options: WorkspaceFileTarget) => Promise<WorkspacePdfReadResult>
   saveWorkspaceFileAs: (payload: WorkspaceFileSaveAsPayload) => Promise<WorkspaceFileSaveAsResult>
   writeWorkspaceFile: (payload: WorkspaceFileWritePayload) => Promise<WorkspaceFileWriteResult>
   createWorkspaceFile: (payload: WorkspaceFileCreatePayload) => Promise<WorkspaceFileCreateResult>
@@ -193,9 +228,15 @@ export type KunGuiApi = {
   requestWriteInlineCompletion: (
     payload: WriteInlineCompletionRequest
   ) => Promise<WriteInlineCompletionResult>
+  retrieveWriteContext: (
+    payload: WriteRetrievalRequest
+  ) => Promise<WriteRetrievalResult>
   generateWriteInfographic: (
     payload: WriteInfographicRequest
   ) => Promise<WriteInfographicResult>
+  transcribeSpeech: (
+    payload: SpeechTranscriptionRequest
+  ) => Promise<SpeechTranscriptionResult>
   listWriteInlineCompletionDebugEntries: () => Promise<WriteInlineCompletionDebugEntry[]>
   clearWriteInlineCompletionDebugEntries: () => Promise<boolean>
   exportWriteDocument: (payload: WriteExportPayload) => Promise<WriteExportResult>
@@ -208,6 +249,7 @@ export type KunGuiApi = {
   onSseEnd: (handler: (payload: SseEndPayload) => void) => () => void
   onSseError: (handler: (payload: SseErrorPayload) => void) => () => void
   onClawChannelActivity: (handler: (payload: ClawChannelActivityPayload) => void) => () => void
+  onRuntimeStatus: (handler: (payload: KunRuntimeStatusPayload) => void) => () => void
   mirrorClawChannelMessage: (
     threadId: string,
     text: string,
@@ -220,11 +262,11 @@ export type KunGuiApi = {
   ) => Promise<ClawChannelMirrorResult>
   createClawTaskFromText: (
     text: string,
-    options?: { channelId?: string; modelHint?: string; mode?: 'agent' | 'plan' }
+    options?: { channelId?: string; providerId?: string; modelHint?: string; reasoningEffort?: string; mode?: 'agent' | 'plan' }
   ) => Promise<ClawTaskFromTextResult>
   createScheduleTaskFromText: (
     text: string,
-    options?: { workspaceRoot?: string; modelHint?: string; mode?: 'agent' | 'plan' }
+    options?: { workspaceRoot?: string; clawChannelId?: string; providerId?: string; modelHint?: string; reasoningEffort?: string; mode?: 'agent' | 'plan' }
   ) => Promise<ScheduleTaskFromTextResult>
   runDesktopCommand: (command: DesktopCommand) => Promise<void>
   openExternal: (url: string) => Promise<void>

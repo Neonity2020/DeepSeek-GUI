@@ -3,6 +3,8 @@ import {
   initialWriteMarkdownImageSrc,
   loadWriteMarkdownImage
 } from '../markdown-image'
+import { parsePendingInfographicId } from '../infographic-pending'
+import { createInfographicPendingElement } from '../infographic-pending-dom'
 
 export type WriteLocalImageOptions = {
   /** Absolute path of the markdown file being edited; relative image
@@ -25,6 +27,22 @@ export const WriteLocalImage = Image.extend<WriteLocalImageOptions>({
 
   addNodeView() {
     return ({ node }) => {
+      const pendingId = parsePendingInfographicId(
+        typeof node.attrs.src === 'string' ? node.attrs.src : ''
+      )
+      if (pendingId !== null) {
+        // Generating infographic: animated placeholder instead of an <img>.
+        // Any src change recreates the view, which is how the placeholder
+        // morphs into the real image once the token is replaced.
+        return {
+          dom: createInfographicPendingElement(pendingId),
+          update: (updated) => {
+            if (updated.type.name !== node.type.name) return false
+            const updatedSrc = typeof updated.attrs.src === 'string' ? updated.attrs.src : ''
+            return parsePendingInfographicId(updatedSrc) === pendingId
+          }
+        }
+      }
       const dom = document.createElement('img')
       dom.className = 'write-rich-image'
       dom.alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : ''

@@ -20,6 +20,7 @@ import {
   ListTodo,
   Loader2,
   MessageCircleMore,
+  Mic,
   Minimize2,
   PauseCircle,
   Pencil,
@@ -81,7 +82,10 @@ import {
 import {
   type ComposerExecutionSettings
 } from './FloatingComposerExecutionPicker'
+import { ImagePreviewLightbox } from './ImagePreviewLightbox'
 import { useComposerDraft } from './use-composer-draft'
+import { useSpeechToTextSettings, useVoiceDictation } from './use-voice-dictation'
+import { VoiceRecordingStrip } from './VoiceRecordingStrip'
 import type { ComposerChangedFile } from '../../lib/composer-change-summary'
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
@@ -181,6 +185,60 @@ export type ComposerImageTransferSource = {
 
 export type ComposerClipboardImageSource = ComposerImageTransferSource & {
   getData?: (format: string) => string
+}
+
+function ComposerImageAttachmentPreview({
+  attachment,
+  onRemoveAttachment
+}: {
+  attachment: AttachmentReference
+  onRemoveAttachment?: (id: string) => void
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
+  const title = attachment.name || attachment.id
+  const previewUrl = attachment.previewUrl ?? ''
+
+  return (
+    <span
+      className="ds-no-drag relative block h-20 w-20 overflow-hidden rounded-lg border border-ds-border-muted bg-ds-card shadow-sm"
+      title={title}
+    >
+      <button
+        type="button"
+        onClick={() => setImagePreviewOpen(true)}
+        className="block h-full w-full cursor-zoom-in"
+        aria-label={t('imagePreviewOpen', { name: title })}
+        title={t('imagePreviewOpen', { name: title })}
+      >
+        <img
+          src={previewUrl}
+          alt={title}
+          className="h-full w-full object-cover"
+        />
+      </button>
+      {onRemoveAttachment ? (
+        <button
+          type="button"
+          onClick={() => onRemoveAttachment(attachment.id)}
+          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-white shadow-sm transition hover:bg-zinc-800"
+          aria-label={t('composerRemoveAttachment')}
+          title={t('composerRemoveAttachment')}
+        >
+          <X className="h-3 w-3" strokeWidth={2.2} />
+        </button>
+      ) : null}
+      <ImagePreviewLightbox
+        open={imagePreviewOpen}
+        src={previewUrl}
+        alt={title}
+        title={title}
+        downloadHref={previewUrl}
+        downloadName={title}
+        onClose={() => setImagePreviewOpen(false)}
+      />
+    </span>
+  )
 }
 
 function arrayLikeValues<T>(value: ArrayLike<T> | null | undefined): T[] {
@@ -531,6 +589,30 @@ export function FloatingComposer({
   const activeClawChannelId = useChatStore((s) => s.activeClawChannelId)
   const compact = variant === 'compact'
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const speechToTextSettings = useSpeechToTextSettings()
+  const dictationInputRef = useRef(input)
+  useEffect(() => {
+    dictationInputRef.current = input
+  }, [input])
+  const dictationPrimaryActionRef = useRef<(() => void) | null>(null)
+  const dictation = useVoiceDictation({
+    speechToText: speechToTextSettings,
+    onText: (text, intent) => {
+      const existing = dictationInputRef.current.replace(/\s+$/, '')
+      setInput(existing ? `${existing} ${text}` : text)
+      if (intent === 'send') {
+        // 等 setInput 的重渲染落地后再走正常的发送路径,
+        // 这样语音直发和手动点发送行为完全一致。
+        window.setTimeout(() => dictationPrimaryActionRef.current?.(), 0)
+      }
+    }
+  })
+  const showVoiceDictation = Boolean(
+    speechToTextSettings?.enabled &&
+    speechToTextSettings.baseUrl.trim() &&
+    speechToTextSettings.apiKey.trim() &&
+    speechToTextSettings.model.trim()
+  )
   const activeClawChannel = useMemo(
     () => clawChannels.find((channel) => channel.id === activeClawChannelId) ?? null,
     [activeClawChannelId, clawChannels]
@@ -1142,6 +1224,7 @@ export function FloatingComposer({
     }
     onSend()
   }
+  dictationPrimaryActionRef.current = primaryActionDisabled ? null : handlePrimaryAction
 
   const handleComposerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
     const sendByEnter =
@@ -1325,7 +1408,7 @@ export function FloatingComposer({
       <div className="relative">
         {!compact && activeThreadGoal && slashQuery == null && !goalPanelOpen && !composerMenuOpen ? (
           <div className="pointer-events-none absolute inset-x-3 bottom-full z-20 mb-2 flex justify-center">
-            <div className="pointer-events-auto flex min-h-11 w-full max-w-[46rem] items-center gap-2 rounded-full border border-ds-border bg-ds-card/95 px-3 py-1.5 text-ds-muted shadow-[0_12px_34px_rgba(15,23,42,0.10)] backdrop-blur-xl dark:bg-ds-card/90">
+            <div className="pointer-events-auto flex min-h-11 w-full max-w-[46rem] items-center gap-2 rounded-full border border-ds-border bg-ds-card/95 px-3 py-1.5 text-ds-muted shadow-[0_12px_34px_rgba(20,47,95,0.10)] backdrop-blur-xl dark:bg-ds-card/90">
               <Target className="h-3.5 w-3.5 shrink-0 text-ds-faint" strokeWidth={1.9} />
               <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-5">
                 <span className="shrink-0 font-semibold text-ds-ink">
@@ -1385,7 +1468,7 @@ export function FloatingComposer({
         {composerMenuOpen && slashQuery == null ? (
           <div
             ref={composerMenuPanelRef}
-            className="absolute bottom-12 left-1 z-40 w-48 overflow-hidden rounded-[18px] border border-ds-border bg-white py-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:bg-ds-card"
+            className="absolute bottom-12 left-1 z-40 w-48 overflow-hidden rounded-[18px] border border-ds-border bg-white py-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(20,47,95,0.16)] dark:bg-ds-card"
           >
             {attachmentUploadEnabled ? (
               <>
@@ -1425,7 +1508,7 @@ export function FloatingComposer({
                 <span
                   className={`absolute top-0.5 h-4 w-4 rounded-full bg-white ring-1 ring-black/5 transition ${
                     mode === 'plan' ? 'translate-x-[17px]' : 'translate-x-0.5'
-                  } shadow-[0_1px_4px_rgba(15,23,42,0.28)]`}
+                  } shadow-[0_1px_4px_rgba(20,47,95,0.28)]`}
                 />
               </span>
             </button>
@@ -1449,7 +1532,7 @@ export function FloatingComposer({
                 <span
                   className={`absolute top-0.5 h-4 w-4 rounded-full bg-white ring-1 ring-black/5 transition ${
                     goalMenuChecked ? 'translate-x-[17px]' : 'translate-x-0.5'
-                  } shadow-[0_1px_4px_rgba(15,23,42,0.28)]`}
+                  } shadow-[0_1px_4px_rgba(20,47,95,0.28)]`}
                 />
               </span>
             </button>
@@ -1457,7 +1540,7 @@ export function FloatingComposer({
         ) : null}
 
         {slashQuery != null ? (
-          <div className="ds-card-strong absolute bottom-full left-1/2 z-30 mb-2 w-[calc(100%_-_1rem)] max-w-[760px] -translate-x-1/2 overflow-hidden rounded-[16px] p-1.5 shadow-[0_18px_46px_rgba(15,23,42,0.14)]">
+          <div className="ds-card-strong absolute bottom-full left-1/2 z-30 mb-2 w-[calc(100%_-_1rem)] max-w-[760px] -translate-x-1/2 overflow-hidden rounded-[16px] p-1.5 shadow-[0_18px_46px_rgba(20,47,95,0.14)]">
             <div className="flex h-7 items-center px-2.5 text-[11.5px] font-semibold text-ds-muted">
               {t('slashCommandMenuTitle')}
             </div>
@@ -1474,7 +1557,7 @@ export function FloatingComposer({
                       disabled={command.disabled}
                       className={`flex min-h-[52px] w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
                         active && !command.disabled
-                          ? 'bg-ds-hover text-ds-ink shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]'
+                          ? 'bg-ds-hover text-ds-ink shadow-[inset_0_0_0_1px_rgba(20,47,95,0.06)]'
                           : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink disabled:hover:bg-transparent disabled:hover:text-ds-muted'
                       }`}
                     >
@@ -1516,7 +1599,7 @@ export function FloatingComposer({
         ) : null}
 
         {showFileMentionMenu ? (
-          <div className="ds-card-strong absolute bottom-full left-1/2 z-30 mb-2 w-[calc(100%_-_1rem)] max-w-[680px] -translate-x-1/2 overflow-hidden rounded-[16px] p-1.5 shadow-[0_18px_46px_rgba(15,23,42,0.14)]">
+          <div className="ds-card-strong absolute bottom-full left-1/2 z-30 mb-2 w-[calc(100%_-_1rem)] max-w-[680px] -translate-x-1/2 overflow-hidden rounded-[16px] p-1.5 shadow-[0_18px_46px_rgba(20,47,95,0.14)]">
             <div className="flex h-7 items-center gap-2 px-2.5 text-[11.5px] font-semibold text-ds-muted">
               <FileText className="h-3.5 w-3.5 text-ds-faint" strokeWidth={1.9} />
               <span>{t('composerFileMentionMenuTitle')}</span>
@@ -1536,7 +1619,7 @@ export function FloatingComposer({
                       onClick={() => applyFileMention(reference)}
                       className={`flex min-h-[46px] w-full items-center gap-2.5 rounded-[12px] px-2.5 py-2 text-left transition ${
                         active
-                          ? 'bg-ds-hover text-ds-ink shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]'
+                          ? 'bg-ds-hover text-ds-ink shadow-[inset_0_0_0_1px_rgba(20,47,95,0.06)]'
                           : 'text-ds-muted hover:bg-ds-hover hover:text-ds-ink'
                       }`}
                     >
@@ -1573,7 +1656,7 @@ export function FloatingComposer({
         {goalPanelOpen && slashQuery == null ? (
           <div
             ref={goalPanelRef}
-            className="absolute inset-x-2 bottom-full z-30 mb-3 overflow-hidden rounded-[26px] border border-ds-border bg-ds-card/95 p-3 shadow-[0_18px_52px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:bg-ds-card/90"
+            className="absolute inset-x-2 bottom-full z-30 mb-3 overflow-hidden rounded-[26px] border border-ds-border bg-ds-card/95 p-3 shadow-[0_18px_52px_rgba(20,47,95,0.14)] backdrop-blur-xl dark:bg-ds-card/90"
           >
             <div className="flex items-start gap-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-ds-border-muted text-ds-muted">
@@ -1769,28 +1852,11 @@ export function FloatingComposer({
             <div className="flex flex-wrap items-center gap-2 px-1">
               {attachments.map((attachment) => (
                 attachment.previewUrl ? (
-                  <span
+                  <ComposerImageAttachmentPreview
                     key={attachment.id}
-                    className="ds-no-drag relative block h-20 w-20 overflow-hidden rounded-lg border border-ds-border-muted bg-ds-card shadow-sm"
-                    title={attachment.name || attachment.id}
-                  >
-                    <img
-                      src={attachment.previewUrl}
-                      alt={attachment.name || attachment.id}
-                      className="h-full w-full object-cover"
-                    />
-                    {onRemoveAttachment ? (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveAttachment(attachment.id)}
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-white shadow-sm transition hover:bg-zinc-800"
-                        aria-label={t('composerRemoveAttachment')}
-                        title={t('composerRemoveAttachment')}
-                      >
-                        <X className="h-3 w-3" strokeWidth={2.2} />
-                      </button>
-                    ) : null}
-                  </span>
+                    attachment={attachment}
+                    onRemoveAttachment={onRemoveAttachment}
+                  />
                 ) : (
                   <span
                     key={attachment.id}
@@ -1829,6 +1895,13 @@ export function FloatingComposer({
               className="hidden"
               onChange={handleAttachmentInput}
             />
+          ) : null}
+          {dictation.error ? (
+            <div className="px-1">
+              <span className="min-w-0 break-words text-[12px] font-medium text-red-600 dark:text-red-300">
+                {dictation.error}
+              </span>
+            </div>
           ) : null}
           <div
             className={`ds-composer-toolbar flex min-h-9 items-center gap-2 ${
@@ -1876,9 +1949,36 @@ export function FloatingComposer({
             ) : null}
             <div
               className={`flex min-w-0 items-center justify-end gap-1.5 ${
-                stretchModelPicker ? 'flex-1' : 'shrink-0'
+                stretchModelPicker || dictation.status === 'recording' ? 'flex-1' : 'shrink-0'
               }`}
             >
+              {dictation.status === 'recording' ? (
+                <>
+                  <VoiceRecordingStrip
+                    getLevel={dictation.getLevel}
+                    startedAtMs={dictation.startedAtMs}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => dictation.stop('insert')}
+                    className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-ds-border bg-ds-card text-ds-ink shadow-sm transition hover:bg-ds-hover"
+                    aria-label={t('composerVoiceStop')}
+                    title={t('composerVoiceStop')}
+                  >
+                    <Square className="h-3 w-3 fill-current" strokeWidth={2.4} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dictation.stop('send')}
+                    className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(20,47,95,0.22)] transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                    aria-label={t('composerVoiceSend')}
+                    title={t('composerVoiceSend')}
+                  >
+                    <Send className="h-4 w-4" strokeWidth={2.2} />
+                  </button>
+                </>
+              ) : (
+              <>
               {hideModelPicker ? null : (
                 <FloatingComposerModelPicker
                   compact={compact}
@@ -1893,11 +1993,35 @@ export function FloatingComposer({
                   onComposerReasoningEffortChange={onComposerReasoningEffortChange}
                 />
               )}
+              {showVoiceDictation ? (
+                <button
+                  type="button"
+                  disabled={dictation.status === 'transcribing' || !canEditComposer}
+                  onClick={dictation.toggle}
+                  className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ds-muted transition hover:bg-ds-hover hover:text-ds-ink disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={
+                    dictation.status === 'transcribing'
+                      ? t('composerVoiceTranscribing')
+                      : t('composerVoiceStart')
+                  }
+                  title={
+                    dictation.status === 'transcribing'
+                      ? t('composerVoiceTranscribing')
+                      : t('composerVoiceStart')
+                  }
+                >
+                  {dictation.status === 'transcribing' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2.2} />
+                  ) : (
+                    <Mic className="h-4 w-4" strokeWidth={2} />
+                  )}
+                </button>
+              ) : null}
               {busy ? (
                 <button
                   type="button"
                   onClick={() => onInterrupt()}
-                  className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
+                  className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(20,47,95,0.22)] transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
                   aria-label={t('interrupt')}
                   title={t('interrupt')}
                 >
@@ -1908,7 +2032,7 @@ export function FloatingComposer({
                 type="button"
                 disabled={primaryActionDisabled}
                 onClick={handlePrimaryAction}
-                className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(15,23,42,0.22)] transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-ds-card disabled:text-ds-faint disabled:shadow-none dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:disabled:bg-ds-card dark:disabled:text-ds-faint"
+                className="ds-no-drag flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-white shadow-[0_10px_22px_rgba(20,47,95,0.22)] transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-ds-card disabled:text-ds-faint disabled:shadow-none dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:disabled:bg-ds-card dark:disabled:text-ds-faint"
                 aria-label={primaryActionLabel}
                 title={primaryActionLabel}
               >
@@ -1918,6 +2042,8 @@ export function FloatingComposer({
                   <Send className="h-4 w-4" strokeWidth={2.2} />
                 )}
               </button>
+              </>
+              )}
             </div>
           </div>
         </div>
@@ -1934,11 +2060,7 @@ export function FloatingComposer({
                     ? t('sessionUsageDetailsTitle', {
                         tokens: formatCompactNumber(threadUsage.totalTokens),
                         cost: formatCost(threadUsage.costUsd, i18n.language, threadUsage.costCny),
-                        saved: formatCost(
-                          threadUsage.tokenEconomySavingsUsd,
-                          i18n.language,
-                          threadUsage.tokenEconomySavingsCny
-                        ),
+                        saved: formatCompactNumber(threadUsage.tokenEconomySavingsTokens),
                         cache: formatPercent(threadUsage.cacheHitRate),
                         cached: formatCompactNumber(threadUsage.cachedTokens),
                         miss: formatCompactNumber(threadUsage.cacheMissTokens),
@@ -1971,11 +2093,7 @@ export function FloatingComposer({
                           })}
                         >
                           {t('sessionUsageContextSavings', {
-                            cost: formatCost(
-                              threadUsage.tokenEconomySavingsUsd,
-                              i18n.language,
-                              threadUsage.tokenEconomySavingsCny
-                            )
+                            tokens: formatCompactNumber(threadUsage.tokenEconomySavingsTokens)
                           })}
                         </span>
                       </>

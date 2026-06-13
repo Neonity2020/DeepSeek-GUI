@@ -51,10 +51,10 @@ const hasNotaryToolCredentials = Boolean(
     (process.env.APPLE_API_KEY || process.env.APPLE_API_KEY_BASE64)
 )
 
-// 更新源域名和 R2 release prefix 维持旧值不动:线上老版本轮询的就是
+// R2 release prefix 维持旧值不动:线上老版本轮询的就是
 // `…/deepseek-gui/channels/<channel>/latest/`,prefix 一改老客户端就再也
-// 收不到更新。品牌改名只动产物文件名,不动 feed 路径。
-const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://deepseek-gui.com/api/r2')
+// 收不到更新。默认公开域名优先使用 kun-agent,运行时仍会兜底旧域名。
+const r2PublicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || 'https://www.kun-agent.com/api/r2')
   .trim()
   .replace(/\/+$/, '')
 const r2ReleasePrefix = (process.env.R2_RELEASE_PREFIX || 'deepseek-gui')
@@ -140,7 +140,12 @@ module.exports = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
-    icon: './src/asset/img/deepseek.png',
+    extendInfo: {
+      // 语音输入：渲染进程通过 getUserMedia 录音做语音转文字。
+      NSMicrophoneUsageDescription: 'Kun uses the microphone for voice-to-text input.'
+    },
+    // macOS 不会自动套圆角遮罩,图标文件本身需要是「圆角方块 + 透明边距」
+    icon: './src/asset/img/kun_mac.png',
     // arm64 (Apple Silicon) + x64 (Intel). On M 系列 Mac 本地打包会各出一组 dmg/zip。
     target: [
       { target: 'dmg', arch: ['arm64', 'x64'] },
@@ -151,7 +156,7 @@ module.exports = {
     sign: hasExplicitMacSigningIdentity
   },
   win: {
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/kun.png',
     target: [{ target: 'nsis', arch: ['x64'] }]
   },
   nsis: {
@@ -169,7 +174,7 @@ module.exports = {
   },
   linux: {
     category: 'Development',
-    icon: './src/asset/img/deepseek.png',
+    icon: './src/asset/img/kun.png',
     target: [{ target: 'AppImage', arch: ['x64'] }]
   },
   extraMetadata: {

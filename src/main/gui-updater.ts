@@ -15,11 +15,14 @@ import type {
 import { nextGuiUpdateCheckDelay } from '../shared/gui-update-schedule'
 import { DEFAULT_GUI_UPDATE_CHANNEL, normalizeGuiUpdateChannel } from '../shared/gui-update'
 
-// 更新源域名与 R2 prefix 保持旧值:线上还在运行的 DeepSeek GUI 老版本
-// 轮询的就是这条 feed 路径,改了它们就收不到 Kun 的升级包。品牌改名
-// 只改产物文件名(latest*.yml 内容指向新文件名,新老客户端都能下载)。
-const DEFAULT_R2_PUBLIC_BASE_URL = 'https://deepseek-gui.com/api/r2'
+// R2 prefix 保持旧值:线上还在运行的 DeepSeek GUI 老版本轮询的
+// 就是 `deepseek-gui/channels/<channel>/latest/`,prefix 一改老客户端
+// 就再也收不到 Kun 的升级包。域名优先使用 kun-agent,旧域名仅作兜底。
+const PRIMARY_R2_PUBLIC_BASE_URL = 'https://www.kun-agent.com/api/r2'
+const SECONDARY_R2_PUBLIC_BASE_URL = 'https://kun-agent.com/api/r2'
+const LEGACY_R2_PUBLIC_BASE_URL = 'https://deepseek-gui.com/api/r2'
 const DEFAULT_R2_RELEASE_PREFIX = 'deepseek-gui'
+const UPDATE_FEED_PROBE_TIMEOUT_MS = 5_000
 const { autoUpdater } = electronUpdater
 
 function envWithLegacyFallback(kunName: string, legacyName: string): string {
@@ -67,13 +70,62 @@ function envUpdateUrl(channel: GuiUpdateChannel): string {
   return direct ? direct.replace(/\{channel\}/g, channel).replace(/\/?$/, '/') : ''
 }
 
-function updateFeedUrl(channel: GuiUpdateChannel): string {
-  const direct = envUpdateUrl(channel)
-  if (direct) return direct
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)))
+}
 
-  const base = process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_R2_PUBLIC_BASE_URL
+function defaultR2BaseUrls(): string[] {
+  const configured = process.env.R2_PUBLIC_BASE_URL?.trim()
+  if (configured) return [configured]
+  return [PRIMARY_R2_PUBLIC_BASE_URL, SECONDARY_R2_PUBLIC_BASE_URL, LEGACY_R2_PUBLIC_BASE_URL]
+}
+
+function updateFeedUrlCandidates(channel: GuiUpdateChannel): string[] {
+  const direct = envUpdateUrl(channel)
+  if (direct) return [direct]
+
   const prefix = process.env.R2_RELEASE_PREFIX?.trim() || DEFAULT_R2_RELEASE_PREFIX
-  return `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`
+  return uniqueStrings(
+    defaultR2BaseUrls().map((base) => `${joinUrl(base, prefix, 'channels', channel, 'latest')}/`)
+  )
+}
+
+function updateFeedUrl(channel: GuiUpdateChannel): string {
+  return updateFeedUrlCandidates(channel)[0]
+}
+
+function updateFeedManifestUrl(feedUrl: string): string {
+  return `${feedUrl}${platformManifestName()}`
+}
+
+async function isUpdateFeedAccessible(feedUrl: string): Promise<boolean> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), UPDATE_FEED_PROBE_TIMEOUT_MS)
+  try {
+    const res = await fetch(updateFeedManifestUrl(feedUrl), {
+      method: 'HEAD',
+      headers: {
+        Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
+        'User-Agent': `kun/${app.getVersion()}`
+      },
+      signal: controller.signal
+    })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function resolveUpdateFeedUrl(channel: GuiUpdateChannel): Promise<string> {
+  const candidates = updateFeedUrlCandidates(channel)
+  if (candidates.length <= 1) return candidates[0]
+
+  for (const candidate of candidates) {
+    if (await isUpdateFeedAccessible(candidate)) return candidate
+  }
+  return candidates[candidates.length - 1]
 }
 
 function guiUpdateSchedulePath(): string {
@@ -144,7 +196,7 @@ function resolveGithubReleaseUrl(): string | null {
 }
 
 function downloadPageUrl(): string {
-  const direct = process.env.DEEPSEEK_GUI_DOWNLOAD_URL?.trim()
+  const direct = envWithLegacyFallback('KUN_DOWNLOAD_URL', 'DEEPSEEK_GUI_DOWNLOAD_URL')
   if (direct) return direct
 
   const pkg = readPackageJson()
@@ -334,9 +386,8 @@ async function resolveUpdateChannel(requested?: GuiUpdateChannel): Promise<GuiUp
   return DEFAULT_GUI_UPDATE_CHANNEL
 }
 
-function configureUpdaterChannel(channel: GuiUpdateChannel): void {
+function configureUpdaterChannel(channel: GuiUpdateChannel, feedUrl = updateFeedUrl(channel)): void {
   const normalized = normalizeGuiUpdateChannel(channel)
-  const feedUrl = updateFeedUrl(normalized)
   const changed = normalized !== configuredChannel || feedUrl !== configuredFeedUrl
   configuredChannel = normalized
   configuredFeedUrl = feedUrl
@@ -349,6 +400,10 @@ function configureUpdaterChannel(channel: GuiUpdateChannel): void {
   emitGuiUpdateState({ status: 'idle' })
 }
 
+async function configureReachableUpdaterChannel(channel: GuiUpdateChannel): Promise<void> {
+  configureUpdaterChannel(channel, await resolveUpdateFeedUrl(channel))
+}
+
 export function setGuiUpdateChannel(channel: GuiUpdateChannel): void {
   configureUpdaterChannel(channel)
 }
@@ -359,7 +414,10 @@ async function checkManualUpdate(
 ): Promise<GuiUpdateInfo> {
   const currentVersion = app.getVersion()
   try {
-    const url = `${updateFeedUrl(channel)}${platformManifestName()}`
+    const feedUrl = configuredChannel === channel && configuredFeedUrl
+      ? configuredFeedUrl
+      : await resolveUpdateFeedUrl(channel)
+    const url = updateFeedManifestUrl(feedUrl)
     const res = await fetch(url, {
       headers: {
         Accept: 'application/x-yaml,text/yaml,text/plain,*/*',
@@ -487,7 +545,7 @@ export function getGuiUpdateState(): GuiUpdateState {
 
 export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateInfo> {
   const selectedChannel = await resolveUpdateChannel(channel)
-  configureUpdaterChannel(selectedChannel)
+  await configureReachableUpdaterChannel(selectedChannel)
 
   if (!macAutoUpdateAllowed()) {
     return checkManualUpdate(selectedChannel, 'unsupported')
@@ -520,7 +578,7 @@ export async function checkGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpd
 
 export async function downloadGuiUpdate(channel?: GuiUpdateChannel): Promise<GuiUpdateDownloadResult> {
   const selectedChannel = await resolveUpdateChannel(channel)
-  configureUpdaterChannel(selectedChannel)
+  await configureReachableUpdaterChannel(selectedChannel)
 
   if (!macAutoUpdateAllowed()) {
     return {

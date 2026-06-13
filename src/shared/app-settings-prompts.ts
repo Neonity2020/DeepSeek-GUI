@@ -6,7 +6,12 @@ import {
   type ClawImPlatformCredentialV1,
   type ClawImRemoteSessionV1
 } from './app-settings-types'
-import { resolveKunImageGenerationSettings } from './app-settings-provider'
+import {
+  resolveKunImageGenerationSettings,
+  resolveKunMusicGenerationSettings,
+  resolveKunTextToSpeechSettings,
+  resolveKunVideoGenerationSettings
+} from './app-settings-provider'
 
 export const CLAW_CURRENT_USER_REQUEST_HEADING = '[Current user request]'
 export const CLAW_MANAGED_INSTRUCTIONS_HEADING = '[Claw managed instructions]'
@@ -189,6 +194,30 @@ export function buildClawRuntimePrompt(
   if (imageGeneration?.enabled && imageGeneration.baseUrl.trim() && imageGeneration.apiKey.trim() && imageGeneration.model.trim()) {
     instructions.push(
       'Image generation is enabled for this Claw agent. When the user asks you to create, draw, generate, or edit an image, call the `generate_image` tool. After the tool succeeds the image file is delivered to the user automatically (IM chats receive it as a picture message), so simply confirm the image is ready — never paste base64 data, local file paths, or fabricated links into your reply.'
+    )
+  }
+  const textToSpeech = settings.provider && settings.agents
+    ? resolveKunTextToSpeechSettings(settings as AppSettingsV1)
+    : settings.agents?.kun?.textToSpeech
+  if (textToSpeech?.enabled && textToSpeech.baseUrl.trim() && textToSpeech.apiKey.trim() && textToSpeech.model.trim()) {
+    instructions.push(
+      'Text-to-speech generation is enabled for this Claw agent. When the user asks for spoken narration, voiceover, dubbing, or audio speech, call the `generate_speech` tool. After the tool succeeds the audio file is delivered to the user automatically, so simply confirm the speech audio is ready and never paste base64 data, local file paths, or fabricated links into your reply.'
+    )
+  }
+  const musicGeneration = settings.provider && settings.agents
+    ? resolveKunMusicGenerationSettings(settings as AppSettingsV1)
+    : settings.agents?.kun?.musicGeneration
+  if (musicGeneration?.enabled && musicGeneration.baseUrl.trim() && musicGeneration.apiKey.trim() && musicGeneration.model.trim()) {
+    instructions.push(
+      'Music generation is enabled for this Claw agent. When the user asks for a song, instrumental track, soundtrack, jingle, or music cover, call the `generate_music` tool. After the tool succeeds the audio file is delivered to the user automatically, so simply confirm the music is ready and never paste base64 data, local file paths, or fabricated links into your reply.'
+    )
+  }
+  const videoGeneration = settings.provider && settings.agents
+    ? resolveKunVideoGenerationSettings(settings as AppSettingsV1)
+    : settings.agents?.kun?.videoGeneration
+  if (videoGeneration?.enabled && videoGeneration.baseUrl.trim() && videoGeneration.apiKey.trim() && videoGeneration.model.trim()) {
+    instructions.push(
+      'Video generation is enabled for this Claw agent. When the user asks for text-to-video or image-to-video generation, call the `generate_video` tool. After the tool succeeds the video file is delivered to the user automatically, so simply confirm the video is ready and never paste base64 data, local file paths, or fabricated links into your reply.'
     )
   }
   if (instructions.length === 0) return prompt

@@ -33,7 +33,16 @@ Preset providers remain opt-in because this project does not have a separate
 enabled/disabled provider flag. Adding every known provider by default would
 make all of their models appear in the composer before credentials are set.
 
-## Initial Presets
+## Built-in Providers
+
+DeepSeek:
+
+- id: `deepseek`
+- base URL: `https://api.deepseek.com`
+- endpoint format: OpenAI Chat Completions compatible
+- default models: `deepseek-v4-pro`, `deepseek-v4-flash`
+- compatibility aliases: `deepseek-chat`, `deepseek-reasoner`
+- role: default text/reasoning provider for first-run setup and existing installs
 
 Xiaomi:
 
@@ -55,6 +64,6 @@ MiniMax:
 - image base URL: `https://api.minimaxi.com`
 - image models: `image-01`
 
-The defaults mirror DeepChat's current provider definitions and local model DB,
-plus MiniMax's documented image generation API. They are not locked. Users can
-edit base URLs, protocols, and model IDs if provider endpoints change.
+The defaults are not locked. Users can edit base URLs, protocols, and model IDs
+if provider endpoints change, and they can add custom compatible providers at
+any time.

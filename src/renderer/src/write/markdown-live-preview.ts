@@ -19,6 +19,7 @@ import {
   CodeBlockWidget,
   HrWidget,
   ImageWidget,
+  InfographicPendingWidget,
   ListBulletWidget,
   TableWidget,
   TaskCheckboxWidget,
@@ -28,6 +29,7 @@ import {
   type CodeBlockRange,
   type ParsedTable
 } from './markdown-live-widgets'
+import { parsePendingInfographicImage } from './infographic-pending'
 
 type DecorationRange = {
   from: number
@@ -604,10 +606,17 @@ function buildMarkdownDecorations(view: EditorView): DecorationSet {
 
         switch (node.name) {
           case 'Image': {
-            const parsed = markdownImageFromSource(
-              view.state.doc.sliceString(node.from, node.to),
-              imageContext.filePath
-            )
+            const source = view.state.doc.sliceString(node.from, node.to)
+            const pending = parsePendingInfographicImage(source)
+            if (pending) {
+              ranges.push({
+                from: node.from,
+                to: node.to,
+                deco: Decoration.replace({ widget: new InfographicPendingWidget(pending.id) })
+              })
+              return false
+            }
+            const parsed = markdownImageFromSource(source, imageContext.filePath)
             if (parsed) {
               ranges.push({
                 from: node.from,

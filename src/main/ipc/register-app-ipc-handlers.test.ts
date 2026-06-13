@@ -54,11 +54,14 @@ function settings(): AppSettingsV1 {
 
 function registerOptions(overrides: Partial<Parameters<typeof import('./register-app-ipc-handlers').registerAppIpcHandlers>[0]> = {}) {
   const applySettingsPatch = vi.fn(async () => settings())
+  const saveSettingsPatch = vi.fn(async () => settings())
   return {
     store: { load: vi.fn(async () => settings()) } as never,
     getMainWindow: () => null,
     applySettingsPatch,
+    saveSettingsPatch,
     runtimeRequest: vi.fn() as never,
+    restartRuntime: vi.fn(async () => undefined),
     fetchUpstreamModels: vi.fn() as never,
     getClawRuntime: () => null,
     getScheduleRuntime: () => null,
@@ -113,6 +116,16 @@ describe('registerAppIpcHandlers', () => {
     const handler = handlers.get('settings:set')
     await expect(handler?.({}, payload)).resolves.toEqual(settings())
     expect(applySettingsPatch).toHaveBeenCalledWith(payload)
+  })
+
+  it('restarts the managed runtime through the restart IPC handler', async () => {
+    const { registerAppIpcHandlers } = await import('./register-app-ipc-handlers')
+    const restartRuntime = vi.fn(async () => undefined)
+
+    registerAppIpcHandlers(registerOptions({ restartRuntime }))
+
+    await expect(handlers.get('runtime:restart')?.({})).resolves.toBeUndefined()
+    expect(restartRuntime).toHaveBeenCalledTimes(1)
   })
 
   it('saves generated files to a user-selected path', async () => {
@@ -306,6 +319,7 @@ describe('registerAppIpcHandlers', () => {
       handlers.get('schedule:task:create-from-text')?.({}, {
         text: 'Remind me tomorrow.',
         workspaceRoot: '/tmp/schedule',
+        clawChannelId: 'channel-1',
         modelHint: 'deepseek-v4-flash',
         mode: 'plan'
       })
@@ -317,6 +331,7 @@ describe('registerAppIpcHandlers', () => {
     expect(scheduleRuntime.runTask).toHaveBeenCalledWith('task-1')
     expect(scheduleRuntime.createScheduledTaskFromText).toHaveBeenCalledWith('Remind me tomorrow.', {
       workspaceRoot: '/tmp/schedule',
+      clawChannelId: 'channel-1',
       modelHint: 'deepseek-v4-flash',
       mode: 'plan'
     })

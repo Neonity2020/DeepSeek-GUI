@@ -67,4 +67,23 @@ describe('writeSelectionStatesEqual', () => {
   it('treats missing and present anchor rects as different', () => {
     expect(writeSelectionStatesEqual(selection(), selection({ anchorRect: undefined }))).toBe(false)
   })
+
+  it('detects differing PDF page rects for the same selected text', () => {
+    expect(
+      writeSelectionStatesEqual(
+        selection({
+          sourceKind: 'pdf',
+          pageStart: 2,
+          pageEnd: 2,
+          rects: [{ page: 2, x: 10, y: 20, width: 120, height: 18 }]
+        }),
+        selection({
+          sourceKind: 'pdf',
+          pageStart: 2,
+          pageEnd: 2,
+          rects: [{ page: 2, x: 10, y: 42, width: 120, height: 18 }]
+        })
+      )
+    ).toBe(false)
+  })
 })

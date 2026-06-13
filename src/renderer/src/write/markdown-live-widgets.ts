@@ -4,6 +4,8 @@ import {
   highlightCodeHtml,
   renderFallbackCodeHtml
 } from '../lib/code-highlighting'
+import { isPendingInfographicActive } from './infographic-pending'
+import { createInfographicPendingElement } from './infographic-pending-dom'
 
 export type BlockRange = {
   from: number
@@ -185,6 +187,30 @@ export class ImageWidget extends WidgetType {
           wrapper.dataset.error = error instanceof Error ? error.message : String(error)
         })
     }
+    return wrapper
+  }
+}
+
+export class InfographicPendingWidget extends WidgetType {
+  constructor(private id: string) {
+    super()
+  }
+
+  // Position is intentionally not part of identity: edits elsewhere in the
+  // document must reuse this DOM so the painting animation never restarts.
+  eq(other: InfographicPendingWidget): boolean {
+    return other.id === this.id && isPendingInfographicActive(this.id)
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const wrapper = document.createElement('span')
+    wrapper.className = 'cm-write-md-image-wrap'
+    wrapper.appendChild(createInfographicPendingElement(this.id))
+    wrapper.addEventListener('mousedown', (event) => {
+      if (!isPrimaryMouseDown(event)) return
+      preventEditorMouseHandling(event)
+      focusSourceAt(view, view.posAtDOM(wrapper, 0))
+    })
     return wrapper
   }
 }

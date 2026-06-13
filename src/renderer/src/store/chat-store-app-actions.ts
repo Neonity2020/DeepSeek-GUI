@@ -10,6 +10,7 @@ type CreateAppActionsOptions = {
   persistComposerModel: (model: string) => void
   readStoredComposerModel: (allowedIds: readonly string[]) => string
   mergeComposerPickList: (upstreamOk: boolean, upstreamIds: string[]) => string[]
+  fallbackComposerModel: (pickList: readonly string[], runtimeDefault: string) => string
   getComposerModelLoadPromise: () => Promise<void> | null
   setComposerModelLoadPromise: (promise: Promise<void> | null) => void
   applyTheme: (theme: AppSettingsV1['theme']) => void
@@ -43,6 +44,7 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     persistComposerModel,
     readStoredComposerModel,
     mergeComposerPickList,
+    fallbackComposerModel,
     getComposerModelLoadPromise,
     setComposerModelLoadPromise,
     applyTheme,
@@ -58,6 +60,10 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
     setComposerModel: (modelId) => {
       persistComposerModel(modelId)
       set({ composerModel: modelId })
+      const trimmed = modelId.trim()
+      if (trimmed && trimmed.toLowerCase() !== 'auto' && typeof window.kunGui !== 'undefined') {
+        void window.kunGui.saveSettingsSilent({ agents: { kun: { model: trimmed } } })
+      }
     },
 
     loadComposerModels: async () => {
@@ -68,13 +74,22 @@ export function createAppActions(options: CreateAppActionsOptions): Pick<
         const pick = mergeComposerPickList(res.ok, res.ok ? res.modelIds : [])
         const groups = res.ok ? res.modelGroups ?? [] : []
         const allowed = new Set(pick)
+        const runtimeDefault = res.ok ? res.defaultModelId?.trim() ?? '' : ''
         set((state) => {
-          let model = state.composerModel
-          if (model !== '' && !allowed.has(model)) {
-            model = readStoredComposerModel(pick)
+          const currentModel = state.composerModel.trim()
+          const normalizedCurrentModel = currentModel.toLowerCase() === 'auto' ? '' : currentModel
+          const storedModel = readStoredComposerModel(pick)
+          let model = normalizedCurrentModel
+          let shouldPersist = model !== state.composerModel
+          if (model === '' || !allowed.has(model)) {
+            model = storedModel
+            shouldPersist = false
           }
-          if (model !== '' && !allowed.has(model)) model = ''
-          if (model !== state.composerModel) persistComposerModel(model)
+          if (model === '' || !allowed.has(model)) {
+            model = fallbackComposerModel(pick, runtimeDefault)
+            shouldPersist = false
+          }
+          if (shouldPersist) persistComposerModel(model)
           return { composerPickList: pick, composerModel: model, composerModelGroups: groups }
         })
       })().finally(() => {

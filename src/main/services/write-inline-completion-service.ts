@@ -23,7 +23,8 @@ import type {
 import type { WriteInlineEditRecentEdit } from '../../shared/write-inline-edit'
 import {
   retrieveWriteInlineCompletionContext,
-  type WriteRetrievalContext
+  type WriteRetrievalContext,
+  type WriteRetrievalSnippet
 } from './write-retrieval-service'
 
 const INLINE_COMPLETION_TIMEOUT_MS = 12_000
@@ -278,10 +279,19 @@ function buildRetrievalPromptBlock(
     `Query keywords: ${retrieval.keywords.join(', ')}`
   ]
 
+  const formatSnippetLocation = (snippet: WriteRetrievalSnippet): string => {
+    if (snippet.location.kind === 'pdf') {
+      return snippet.location.pageStart === snippet.location.pageEnd
+        ? `${snippet.path}#page=${snippet.location.pageStart}`
+        : `${snippet.path}#page=${snippet.location.pageStart}-${snippet.location.pageEnd}`
+    }
+    return snippet.location.lineStart === snippet.location.lineEnd
+      ? `${snippet.path}:${snippet.location.lineStart}`
+      : `${snippet.path}:${snippet.location.lineStart}-${snippet.location.lineEnd}`
+  }
+
   retrieval.snippets.forEach((snippet, index) => {
-    const location = snippet.lineStart === snippet.lineEnd
-      ? `${snippet.path}:${snippet.lineStart}`
-      : `${snippet.path}:${snippet.lineStart}-${snippet.lineEnd}`
+    const location = formatSnippetLocation(snippet)
     lines.push('')
     lines.push(`[${index + 1}] ${location}`)
     if (snippet.title) lines.push(`Title: ${sanitizePromptLine(snippet.title)}`)

@@ -214,6 +214,15 @@ export type CoreRuntimeCapabilityManifestJson = {
   imageGen?: CoreRuntimeCapabilityStateJson & {
     model?: string
   }
+  speechGen?: CoreRuntimeCapabilityStateJson & {
+    model?: string
+  }
+  musicGen?: CoreRuntimeCapabilityStateJson & {
+    model?: string
+  }
+  videoGen?: CoreRuntimeCapabilityStateJson & {
+    model?: string
+  }
 }
 
 export type CoreRuntimeInfoJson = {
@@ -473,11 +482,7 @@ export type CoreUsageSnapshotJson = {
   turns?: number
   costUsd?: number
   costCny?: number
-  cacheSavingsUsd?: number
-  cacheSavingsCny?: number
   tokenEconomySavingsTokens?: number
-  tokenEconomySavingsUsd?: number
-  tokenEconomySavingsCny?: number
 }
 
 export type CoreRuntimeEventJson = {

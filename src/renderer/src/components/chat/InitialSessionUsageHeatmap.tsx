@@ -125,17 +125,10 @@ function usageTotalsFromBuckets(buckets: DailyUsageBucket[]): UsageTotalsBucket 
       acc.totalTokens += bucket.totalTokens
       acc.costUsd += bucket.costUsd
       acc.costCny = (acc.costCny ?? 0) + (bucket.costCny ?? 0)
-      acc.cacheSavingsUsd += bucket.cacheSavingsUsd
-      acc.cacheSavingsCny = (acc.cacheSavingsCny ?? 0) + (bucket.cacheSavingsCny ?? 0)
       acc.tokenEconomySavingsTokens += bucket.tokenEconomySavingsTokens
-      acc.tokenEconomySavingsUsd += bucket.tokenEconomySavingsUsd
-      acc.tokenEconomySavingsCny =
-        (acc.tokenEconomySavingsCny ?? 0) + (bucket.tokenEconomySavingsCny ?? 0)
       acc.turns += bucket.turns
       acc.threadCount += bucket.threadCount
       if (bucket.costCny != null) hasCny = true
-      if (bucket.cacheSavingsCny != null) hasCny = true
-      if (bucket.tokenEconomySavingsCny != null) hasCny = true
       if (usageHasBucketActivity(bucket)) acc.activeDays += 1
       return acc
     },
@@ -149,11 +142,7 @@ function usageTotalsFromBuckets(buckets: DailyUsageBucket[]): UsageTotalsBucket 
       totalTokens: 0,
       costUsd: 0,
       costCny: 0,
-      cacheSavingsUsd: 0,
-      cacheSavingsCny: 0,
       tokenEconomySavingsTokens: 0,
-      tokenEconomySavingsUsd: 0,
-      tokenEconomySavingsCny: 0,
       turns: 0,
       threadCount: 0,
       cacheHitRate: null,
@@ -178,7 +167,7 @@ function dailySummary(
     date: bucket.date,
     tokens: formatCompactNumber(bucket.totalTokens),
     cost: formatCost(bucket.costUsd, locale, bucket.costCny),
-    saved: formatCost(bucket.cacheSavingsUsd, locale, bucket.cacheSavingsCny),
+    saved: formatCompactNumber(bucket.cachedTokens),
     turns: bucket.turns,
     threads: bucket.threadCount,
     cache: formatPercent(bucket.cacheHitRate)
@@ -392,7 +381,7 @@ function formatTokenCount(value: number, locale: string): string {
 
 function modelUsageBreakdownSummary(
   label: string,
-  bucket: Pick<DailyUsageBucket, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheMissTokens' | 'totalTokens' | 'cacheSavingsUsd' | 'cacheSavingsCny'>,
+  bucket: Pick<DailyUsageBucket, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheMissTokens' | 'totalTokens'>,
   t: (key: string, values?: Record<string, unknown>) => string,
   locale: string
 ): string {
@@ -402,8 +391,7 @@ function modelUsageBreakdownSummary(
     input: formatTokenCount(bucket.inputTokens, locale),
     output: formatTokenCount(bucket.outputTokens, locale),
     cacheHit: formatTokenCount(bucket.cachedTokens, locale),
-    cacheMiss: formatTokenCount(bucket.cacheMissTokens, locale),
-    saved: formatCost(bucket.cacheSavingsUsd, locale, bucket.cacheSavingsCny)
+    cacheMiss: formatTokenCount(bucket.cacheMissTokens, locale)
   })
 }
 
@@ -530,7 +518,7 @@ function ModelUsagePanel({
         <div className="relative min-w-0" onMouseLeave={() => setActiveDayIndex(null)}>
           {activeDay && activeBreakdown ? (
             <div
-              className={`pointer-events-none absolute top-0 z-20 w-[min(18rem,calc(100vw-4rem))] max-w-full rounded-[18px] border border-ds-border bg-ds-card/98 p-3 shadow-[0_18px_46px_rgba(15,23,42,0.12)] backdrop-blur-xl ${tooltipTransformClass}`}
+              className={`pointer-events-none absolute top-0 z-20 w-[min(18rem,calc(100vw-4rem))] max-w-full rounded-[18px] border border-ds-border bg-ds-card/98 p-3 shadow-[0_18px_46px_rgba(20,47,95,0.12)] backdrop-blur-xl ${tooltipTransformClass}`}
               style={{ left: `${tooltipAnchorPercent}%` }}
             >
               <div className="flex items-start justify-between gap-3">
@@ -796,10 +784,15 @@ export function InitialSessionUsageHeatmapView({
     { label: t('usageHeatmapCurrentStreak'), value: t('usageHeatmapStreakDays', { count: streaks.current }) },
     { label: t('usageHeatmapLongestStreak'), value: t('usageHeatmapStreakDays', { count: streaks.longest }) },
     { label: t('usageHeatmapCost'), value: formatCost(totals.costUsd, i18n.language, totals.costCny) },
-    { label: t('usageHeatmapCacheSavings'), value: formatCost(totals.cacheSavingsUsd, i18n.language, totals.cacheSavingsCny) },
+    {
+      label: t('usageHeatmapCacheSavings'),
+      value: t('usageHeatmapSavedTokensValue', { tokens: formatCompactNumber(totals.cachedTokens) })
+    },
     {
       label: t('usageHeatmapContextSavings'),
-      value: formatCost(totals.tokenEconomySavingsUsd, i18n.language, totals.tokenEconomySavingsCny)
+      value: t('usageHeatmapSavedTokensValue', {
+        tokens: formatCompactNumber(totals.tokenEconomySavingsTokens)
+      })
     },
     { label: t('usageHeatmapCache'), value: formatPercent(totals.cacheHitRate) }
   ]

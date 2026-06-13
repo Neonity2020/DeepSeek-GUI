@@ -14,12 +14,110 @@ import {
   type ModelEndpointFormat,
   type ModelProviderProfileV1,
   type WriteInlineCompletionSettingsV1,
+  type WriteQuickActionMode,
+  type WriteQuickActionV1,
+  type WriteSelectionAssistSettingsV1,
   type WriteSettingsPatchV1,
   type WriteSettingsV1
 } from './app-settings-types'
 import { getActiveAgentApiKey, getKunRuntimeSettings } from './app-settings-kun'
 import { getModelProviderProfile, resolveModelProviderBaseUrl } from './app-settings-provider'
 import { compactStrings } from './app-settings-normalizers'
+
+export const WRITE_QUICK_ACTION_BUILTIN_IDS = ['polish', 'explain', 'reformat'] as const
+
+// Retired built-ins: pristine stored rows (label and prompt empty, i.e. "use
+// the built-in defaults") are dropped on normalization since the defaults no
+// longer exist. Customized rows survive as ordinary custom actions.
+const WRITE_QUICK_ACTION_RETIRED_IDS = new Set(['proofread'])
+
+export const WRITE_QUICK_ACTION_MAX_COUNT = 12
+export const WRITE_QUICK_ACTION_LABEL_MAX_CHARS = 64
+export const WRITE_QUICK_ACTION_PROMPT_MAX_CHARS = 4_000
+
+// Built-in default modes: polish/explain answer through the sidebar assistant
+// (the inline rewrite pipeline proved too lossy for prose), reformat rewrites
+// the selection in place.
+const WRITE_QUICK_ACTION_BUILTIN_MODES: Record<string, WriteQuickActionMode> = {
+  polish: 'chat',
+  explain: 'chat',
+  reformat: 'edit'
+}
+
+export function builtinWriteQuickActionMode(id: string): WriteQuickActionMode {
+  return WRITE_QUICK_ACTION_BUILTIN_MODES[id] ?? 'chat'
+}
+
+export function defaultWriteQuickActions(): WriteQuickActionV1[] {
+  // Empty label/prompt = "use the localized built-in"; the renderer resolves
+  // them through i18n so defaults follow the UI language.
+  return WRITE_QUICK_ACTION_BUILTIN_IDS.map((id) => ({
+    id,
+    label: '',
+    prompt: '',
+    mode: builtinWriteQuickActionMode(id)
+  }))
+}
+
+export function defaultWriteSelectionAssistSettings(): WriteSelectionAssistSettingsV1 {
+  return {
+    infographicPrompt: '',
+    quickActions: defaultWriteQuickActions()
+  }
+}
+
+export function isBuiltinWriteQuickActionId(id: string): boolean {
+  return (WRITE_QUICK_ACTION_BUILTIN_IDS as readonly string[]).includes(id)
+}
+
+/**
+ * Structural normalization only (ids, dedupe, caps). Labels and prompts are
+ * intentionally not trimmed and empty custom actions are kept: this runs on
+ * every settings-form keystroke, and trimming or dropping here would eat
+ * trailing spaces and freshly added rows while the user is still typing.
+ * Point-of-use resolution filters out un-dispatchable actions instead.
+ */
+export function normalizeWriteSelectionAssistSettings(
+  input: WriteSettingsPatchV1['selectionAssist'] | undefined
+): WriteSelectionAssistSettingsV1 {
+  const defaults = defaultWriteSelectionAssistSettings()
+  const infographicPrompt =
+    typeof input?.infographicPrompt === 'string'
+      ? input.infographicPrompt.slice(0, WRITE_QUICK_ACTION_PROMPT_MAX_CHARS)
+      : defaults.infographicPrompt
+  if (!Array.isArray(input?.quickActions)) {
+    return { infographicPrompt, quickActions: defaults.quickActions }
+  }
+
+  const seen = new Set<string>()
+  const quickActions: WriteQuickActionV1[] = []
+  for (const raw of input.quickActions) {
+    const id = typeof raw?.id === 'string' ? raw.id.trim().slice(0, 64) : ''
+    if (!id || seen.has(id)) continue
+    const label = typeof raw?.label === 'string'
+      ? raw.label.slice(0, WRITE_QUICK_ACTION_LABEL_MAX_CHARS)
+      : ''
+    const prompt = typeof raw?.prompt === 'string'
+      ? raw.prompt.slice(0, WRITE_QUICK_ACTION_PROMPT_MAX_CHARS)
+      : ''
+    const pristineBuiltin = !label.trim() && !prompt.trim()
+    if (pristineBuiltin && WRITE_QUICK_ACTION_RETIRED_IDS.has(id)) continue
+    const storedMode: WriteQuickActionMode | null =
+      raw?.mode === 'edit' || raw?.mode === 'chat' ? raw.mode : null
+    // One-shot migration: pristine 'polish' rows persisted the old in-place
+    // default; they follow the new sidebar default. Customized rows keep the
+    // user's explicit mode choice.
+    const mode: WriteQuickActionMode = storedMode === null
+      ? builtinWriteQuickActionMode(id)
+      : pristineBuiltin && id === 'polish' && storedMode === 'edit'
+        ? 'chat'
+        : storedMode
+    seen.add(id)
+    quickActions.push({ id, label, prompt, mode })
+    if (quickActions.length >= WRITE_QUICK_ACTION_MAX_COUNT) break
+  }
+  return { infographicPrompt, quickActions }
+}
 
 export function defaultWriteSettings(): WriteSettingsV1 {
   return {
@@ -42,7 +140,8 @@ export function defaultWriteSettings(): WriteSettingsV1 {
       longMinAcceptScore: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
       maxTokens: DEFAULT_WRITE_INLINE_COMPLETION_MAX_TOKENS,
       longMaxTokens: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS
-    }
+    },
+    selectionAssist: defaultWriteSelectionAssistSettings()
   }
 }
 
@@ -194,7 +293,8 @@ export function normalizeWriteSettings(input: WriteSettingsPatchV1 | undefined):
     defaultWorkspaceRoot,
     activeWorkspaceRoot,
     workspaces: workspaces.length > 0 ? workspaces : [defaultWorkspaceRoot],
-    inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion)
+    inlineCompletion: normalizeWriteInlineCompletionSettings(source.inlineCompletion),
+    selectionAssist: normalizeWriteSelectionAssistSettings(source.selectionAssist)
   }
 }
 
@@ -215,9 +315,16 @@ export function mergeWriteSettings(
     delete (nextInlineCompletion as { inheritProvider?: boolean }).inheritProvider
   }
 
+  const selectionAssistPatch = patch?.selectionAssist ?? {}
+  const nextSelectionAssist: WriteSettingsPatchV1['selectionAssist'] = {
+    ...current.selectionAssist,
+    ...selectionAssistPatch
+  }
+
   return normalizeWriteSettings({
     ...current,
     ...(patch ?? {}),
-    inlineCompletion: nextInlineCompletion
+    inlineCompletion: nextInlineCompletion,
+    selectionAssist: nextSelectionAssist
   })
 }

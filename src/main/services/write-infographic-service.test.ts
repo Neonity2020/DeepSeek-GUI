@@ -140,4 +140,35 @@ describe('write infographic service', () => {
     const prompt = buildWriteInfographicPrompt('x'.repeat(10_000))
     expect(prompt.length).toBeLessThan(7_000)
   })
+
+  it('uses a custom prompt prefix when provided', () => {
+    const prompt = buildWriteInfographicPrompt('内容', '请生成手绘风格的信息图。')
+    expect(prompt).toBe('请生成手绘风格的信息图。\n\n内容')
+  })
+
+  it('falls back to the default prefix for blank custom prompts', () => {
+    const prompt = buildWriteInfographicPrompt('content', '   ')
+    expect(prompt).toContain('infographic')
+  })
+
+  it('sends the configured write.selectionAssist.infographicPrompt to the provider', async () => {
+    const client = fakeClient()
+    const settings = {
+      ...settingsWithImageGen(),
+      write: {
+        selectionAssist: {
+          infographicPrompt: '用赛博朋克风格画一张信息图。',
+          quickActions: []
+        }
+      }
+    } as unknown as AppSettingsV1
+    const result = await requestWriteInfographic(settings, {
+      text: '季度营收增长 25%',
+      filePath: join(workspace, 'doc.md'),
+      workspaceRoot: workspace
+    }, { client })
+
+    expect(result.ok).toBe(true)
+    expect(client.requests[0].prompt).toBe('用赛博朋克风格画一张信息图。\n\n季度营收增长 25%')
+  })
 })

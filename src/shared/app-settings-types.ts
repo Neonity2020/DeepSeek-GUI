@@ -19,25 +19,41 @@ export type UiFontScale = 'small' | 'medium' | 'large'
 export type ScheduleRunMode = 'agent' | 'plan'
 export type ScheduleKind = 'manual' | 'interval' | 'daily' | 'at'
 export type ScheduleTaskStatus = 'idle' | 'running' | 'success' | 'error'
-export type ScheduleModel = 'auto' | 'deepseek-v4-pro' | 'deepseek-v4-flash'
-export type ScheduleReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'max'
+export type ScheduleModel = 'deepseek-v4-pro' | 'deepseek-v4-flash'
+export type ScheduleReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max'
 export type ClawRunMode = ScheduleRunMode
 export type ClawImProvider = 'feishu' | 'weixin'
 export type ClawScheduleKind = ScheduleKind
 export type ClawTaskStatus = ScheduleTaskStatus
-export type ClawModel = ScheduleModel
+export type ClawModel = 'auto' | ScheduleModel
 
 export const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 export const CUSTOM_IMAGE_GENERATION_PROVIDER_ID = 'custom'
 export const IMAGE_GENERATION_PROTOCOLS = ['openai-images', 'minimax-image'] as const
 export type ImageGenerationProtocol = (typeof IMAGE_GENERATION_PROTOCOLS)[number]
 export const DEFAULT_IMAGE_GENERATION_PROTOCOL: ImageGenerationProtocol = 'openai-images'
+export const CUSTOM_SPEECH_TO_TEXT_PROVIDER_ID = 'custom'
+export const SPEECH_TO_TEXT_PROTOCOLS = ['openai-transcriptions', 'mimo-asr'] as const
+export type SpeechToTextProtocol = (typeof SPEECH_TO_TEXT_PROTOCOLS)[number]
+export const DEFAULT_SPEECH_TO_TEXT_PROTOCOL: SpeechToTextProtocol = 'openai-transcriptions'
+export const CUSTOM_TEXT_TO_SPEECH_PROVIDER_ID = 'custom'
+export const TEXT_TO_SPEECH_PROTOCOLS = ['openai-speech', 'minimax-t2a', 'mimo-tts'] as const
+export type TextToSpeechProtocol = (typeof TEXT_TO_SPEECH_PROTOCOLS)[number]
+export const DEFAULT_TEXT_TO_SPEECH_PROTOCOL: TextToSpeechProtocol = 'openai-speech'
+export const CUSTOM_MUSIC_GENERATION_PROVIDER_ID = 'custom'
+export const MUSIC_GENERATION_PROTOCOLS = ['minimax-music'] as const
+export type MusicGenerationProtocol = (typeof MUSIC_GENERATION_PROTOCOLS)[number]
+export const DEFAULT_MUSIC_GENERATION_PROTOCOL: MusicGenerationProtocol = 'minimax-music'
+export const CUSTOM_VIDEO_GENERATION_PROVIDER_ID = 'custom'
+export const VIDEO_GENERATION_PROTOCOLS = ['minimax-video'] as const
+export type VideoGenerationProtocol = (typeof VIDEO_GENERATION_PROTOCOLS)[number]
+export const DEFAULT_VIDEO_GENERATION_PROTOCOL: VideoGenerationProtocol = 'minimax-video'
 export const DEFAULT_CLAW_MODEL = 'auto'
 export const CLAW_MODEL_IDS = ['auto', 'deepseek-v4-pro', 'deepseek-v4-flash'] as const
-export const DEFAULT_SCHEDULE_MODEL = DEFAULT_CLAW_MODEL
-export const SCHEDULE_MODEL_IDS = CLAW_MODEL_IDS
+export const DEFAULT_SCHEDULE_MODEL = 'deepseek-v4-flash'
+export const SCHEDULE_MODEL_IDS = ['deepseek-v4-pro', 'deepseek-v4-flash'] as const
 export const DEFAULT_SCHEDULE_REASONING_EFFORT = 'medium'
-export const SCHEDULE_REASONING_EFFORT_IDS = ['off', 'low', 'medium', 'high', 'max'] as const
+export const SCHEDULE_REASONING_EFFORT_IDS = ['auto', 'off', 'low', 'medium', 'high', 'max'] as const
 export const DEFAULT_SCHEDULE_INTERNAL_PORT = 8788
 // 这些默认目录与 legacy-data-migration.ts 的 HOME_DATA_MIGRATION_MAPPINGS
 // 一一对应:老安装的 ~/.deepseekgui/* 在启动期被搬到这里。
@@ -57,8 +73,56 @@ export const DEFAULT_KUN_PORT = 8899
 export const DEFAULT_WEIXIN_BRIDGE_RPC_URL = 'http://127.0.0.1:18790/api/v1/admin/rpc'
 export const DEFAULT_MODEL_PROVIDER_ID = 'deepseek'
 export type { ModelEndpointFormat }
+export const MODEL_PROVIDER_INPUT_MODALITIES = ['text', 'image'] as const
+export type ModelProviderInputModality = (typeof MODEL_PROVIDER_INPUT_MODALITIES)[number]
+export const MODEL_PROVIDER_MESSAGE_PARTS = ['text', 'image_url', 'input_image'] as const
+export type ModelProviderMessagePartSupport = (typeof MODEL_PROVIDER_MESSAGE_PARTS)[number]
+export const MODEL_REASONING_EFFORTS = ['auto', 'off', 'low', 'medium', 'high', 'max'] as const
+export type ModelReasoningEffort = (typeof MODEL_REASONING_EFFORTS)[number]
+export const MODEL_REASONING_REQUEST_PROTOCOLS = [
+  'none',
+  'deepseek-chat-completions',
+  'mimo-chat-completions',
+  'openai-responses',
+  'anthropic-thinking'
+] as const
+export type ModelReasoningRequestProtocol = (typeof MODEL_REASONING_REQUEST_PROTOCOLS)[number]
+export type ModelProviderReasoningCapabilityV1 = {
+  supportedEfforts: ModelReasoningEffort[]
+  defaultEffort: ModelReasoningEffort
+  requestProtocol: ModelReasoningRequestProtocol
+}
+export type ModelProviderModelProfileV1 = {
+  aliases?: string[]
+  contextWindowTokens?: number
+  inputModalities: ModelProviderInputModality[]
+  outputModalities: ModelProviderInputModality[]
+  supportsToolCalling: boolean
+  messageParts: ModelProviderMessagePartSupport[]
+  reasoning?: ModelProviderReasoningCapabilityV1
+}
 export type ModelProviderImageCapabilityV1 = {
   protocol: ImageGenerationProtocol
+  baseUrl: string
+  models: string[]
+}
+export type ModelProviderSpeechCapabilityV1 = {
+  protocol: SpeechToTextProtocol
+  baseUrl: string
+  models: string[]
+}
+export type ModelProviderTextToSpeechCapabilityV1 = {
+  protocol: TextToSpeechProtocol
+  baseUrl: string
+  models: string[]
+}
+export type ModelProviderMusicCapabilityV1 = {
+  protocol: MusicGenerationProtocol
+  baseUrl: string
+  models: string[]
+}
+export type ModelProviderVideoCapabilityV1 = {
+  protocol: VideoGenerationProtocol
   baseUrl: string
   models: string[]
 }
@@ -69,7 +133,12 @@ export type ModelProviderProfileV1 = {
   baseUrl: string
   endpointFormat: ModelEndpointFormat
   models: string[]
+  modelProfiles: Record<string, ModelProviderModelProfileV1>
   image?: ModelProviderImageCapabilityV1
+  speech?: ModelProviderSpeechCapabilityV1
+  textToSpeech?: ModelProviderTextToSpeechCapabilityV1
+  music?: ModelProviderMusicCapabilityV1
+  video?: ModelProviderVideoCapabilityV1
 }
 export type ModelProviderSettingsV1 = {
   apiKey: string
@@ -78,8 +147,18 @@ export type ModelProviderSettingsV1 = {
 }
 
 export type ModelProviderImageCapabilityPatchV1 = Partial<ModelProviderImageCapabilityV1>
-export type ModelProviderProfilePatchV1 = Partial<Omit<ModelProviderProfileV1, 'image'>> & {
+export type ModelProviderSpeechCapabilityPatchV1 = Partial<ModelProviderSpeechCapabilityV1>
+export type ModelProviderTextToSpeechCapabilityPatchV1 = Partial<ModelProviderTextToSpeechCapabilityV1>
+export type ModelProviderMusicCapabilityPatchV1 = Partial<ModelProviderMusicCapabilityV1>
+export type ModelProviderVideoCapabilityPatchV1 = Partial<ModelProviderVideoCapabilityV1>
+export type ModelProviderModelProfilePatchV1 = Partial<ModelProviderModelProfileV1>
+export type ModelProviderProfilePatchV1 = Partial<Omit<ModelProviderProfileV1, 'image' | 'speech' | 'textToSpeech' | 'music' | 'video' | 'modelProfiles'>> & {
+  modelProfiles?: Record<string, ModelProviderModelProfilePatchV1 | null>
   image?: ModelProviderImageCapabilityPatchV1 | null
+  speech?: ModelProviderSpeechCapabilityPatchV1 | null
+  textToSpeech?: ModelProviderTextToSpeechCapabilityPatchV1 | null
+  music?: ModelProviderMusicCapabilityPatchV1 | null
+  video?: ModelProviderVideoCapabilityPatchV1 | null
 }
 export type ModelProviderSettingsPatchV1 = Partial<
   Omit<ModelProviderSettingsV1, 'providers'>
@@ -120,6 +199,16 @@ export type KunRuntimeSettingsV1 = {
   runtimeTuning: KunRuntimeTuningSettingsV1
   /** OpenAI-compatible image generation provider shared by chat agents and Write image tools. */
   imageGeneration: KunImageGenerationSettingsV1
+  /** Speech-to-text provider used for voice input in the composer. */
+  speechToText: KunSpeechToTextSettingsV1
+  /** Text-to-speech provider exposed to agents as generate_speech. */
+  textToSpeech: KunTextToSpeechSettingsV1
+  /** Music generation provider exposed to agents as generate_music. */
+  musicGeneration: KunMusicGenerationSettingsV1
+  /** Video generation provider exposed to agents as generate_video. */
+  videoGeneration: KunVideoGenerationSettingsV1
+  /** GUI-owned model capability profiles written into Kun `models.profiles`. */
+  modelProfiles: Record<string, ModelProviderModelProfileV1>
 }
 
 export type KunImageGenerationSettingsV1 = {
@@ -136,6 +225,69 @@ export type KunImageGenerationSettingsV1 = {
   /** Default "WxH" or "auto" used when the model omits aspect ratio and size. Empty means provider default. */
   defaultSize: string
   timeoutMs: number
+}
+
+export type KunSpeechToTextSettingsV1 = {
+  enabled: boolean
+  /** Existing provider profile to use for speech recognition. Empty or "custom" uses the fields below. */
+  providerId: string
+  /** Request protocol used when providerId is custom. Provider presets override this with their speech capability. */
+  protocol: SpeechToTextProtocol
+  /** Custom speech API root, or an override for the selected provider speech API root. */
+  baseUrl: string
+  /** Custom speech API key override. Empty inherits the selected provider API key when providerId is set. */
+  apiKey: string
+  model: string
+  /** Language hint sent to the provider ("zh", "en", ...). Empty means auto-detect. */
+  language: string
+  timeoutMs: number
+}
+
+export type KunTextToSpeechSettingsV1 = {
+  enabled: boolean
+  /** Existing provider profile to use for speech generation. Empty or "custom" uses the fields below. */
+  providerId: string
+  /** Request protocol used when providerId is custom. Provider presets override this with their TTS capability. */
+  protocol: TextToSpeechProtocol
+  /** Custom TTS API root, or an override for the selected provider TTS API root. */
+  baseUrl: string
+  /** Custom TTS API key override. Empty inherits the selected provider API key when providerId is set. */
+  apiKey: string
+  model: string
+  /** Provider voice id/name. Empty means provider default. */
+  voice: string
+  /** Default output audio format such as mp3 or wav. */
+  format: string
+  timeoutMs: number
+}
+
+export type KunMusicGenerationSettingsV1 = {
+  enabled: boolean
+  /** Existing provider profile to use for music generation. Empty or "custom" uses the fields below. */
+  providerId: string
+  protocol: MusicGenerationProtocol
+  baseUrl: string
+  apiKey: string
+  model: string
+  /** Default output audio format such as mp3 or wav. */
+  format: string
+  timeoutMs: number
+}
+
+export type KunVideoGenerationSettingsV1 = {
+  enabled: boolean
+  /** Existing provider profile to use for video generation. Empty or "custom" uses the fields below. */
+  providerId: string
+  protocol: VideoGenerationProtocol
+  baseUrl: string
+  apiKey: string
+  model: string
+  /** Default video duration in seconds. */
+  defaultDuration: number
+  /** Default provider resolution value, e.g. 1080P. */
+  defaultResolution: string
+  timeoutMs: number
+  pollIntervalMs: number
 }
 
 export type KunMcpSearchMode = 'direct' | 'search' | 'auto'
@@ -225,7 +377,7 @@ export type KunTokenEconomySettingsPatchV1 = Partial<
 export type KunRuntimeSettingsPatchV1 = Partial<
   Omit<
     KunRuntimeSettingsV1,
-    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'imageGeneration'
+    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'imageGeneration' | 'speechToText' | 'textToSpeech' | 'musicGeneration' | 'videoGeneration' | 'modelProfiles'
   >
 > & {
   mcpSearch?: Partial<KunMcpSearchSettingsV1>
@@ -234,6 +386,11 @@ export type KunRuntimeSettingsPatchV1 = Partial<
   contextCompaction?: Partial<KunContextCompactionSettingsV1>
   runtimeTuning?: KunRuntimeTuningSettingsPatchV1
   imageGeneration?: Partial<KunImageGenerationSettingsV1>
+  speechToText?: Partial<KunSpeechToTextSettingsV1>
+  textToSpeech?: Partial<KunTextToSpeechSettingsV1>
+  musicGeneration?: Partial<KunMusicGenerationSettingsV1>
+  videoGeneration?: Partial<KunVideoGenerationSettingsV1>
+  modelProfiles?: Record<string, ModelProviderModelProfilePatchV1 | null>
 }
 
 export type KunSettingsEnvelopePatchV1 = {
@@ -273,6 +430,10 @@ export type ScheduledTaskV1 = {
   enabled: boolean
   prompt: string
   workspaceRoot: string
+  /** Optional Claw IM channel whose persona/defaults should drive this scheduled task. */
+  clawChannelId: string
+  /** Selected model provider for this scheduled task. Empty means the current/default runtime provider. */
+  providerId?: string
   model: string
   reasoningEffort: ScheduleReasoningEffort
   mode: ScheduleRunMode
@@ -294,6 +455,8 @@ export type ScheduleInternalSettingsV1 = {
 export type ScheduleSettingsV1 = {
   enabled: boolean
   defaultWorkspaceRoot: string
+  /** Default model provider used when creating scheduled tasks. Empty means the current/default runtime provider. */
+  providerId?: string
   model: string
   mode: ScheduleRunMode
   promptPrefix: string
@@ -317,6 +480,8 @@ export type ClawImSettingsV1 = {
   secret: string
   weixinBridgeUrl: string
   workspaceRoot: string
+  /** Default model provider for IM channels without their own provider. Empty inherits Kun runtime provider. */
+  providerId?: string
   model: string
   mode: ClawRunMode
   responseTimeoutMs: number
@@ -387,6 +552,8 @@ export type ClawImChannelV1 = {
   provider: ClawImProvider
   label: string
   enabled: boolean
+  /** Model provider used by this IM channel. Empty inherits the IM/global provider. */
+  providerId?: string
   model: string
   /** Kun thread id this channel maps to. */
   threadId: string
@@ -430,11 +597,32 @@ export type WriteInlineCompletionSettingsV1 = {
   longMaxTokens: number
 }
 
+/** 'edit' rewrites the selection in place; 'chat' hands it to the sidebar assistant. */
+export type WriteQuickActionMode = 'edit' | 'chat'
+
+export type WriteQuickActionV1 = {
+  /** Stable identifier; built-in ids ('polish' | 'explain' | 'reformat') get localized fallbacks. */
+  id: string
+  /** Display label shown in the selection toolbar; empty = localized default for built-in ids. */
+  label: string
+  /** Prompt used for the edit/chat; empty = localized default for built-in ids. */
+  prompt: string
+  /** Whether the result rewrites the selection in place ('edit') or goes to the sidebar ('chat'). */
+  mode: WriteQuickActionMode
+}
+
+export type WriteSelectionAssistSettingsV1 = {
+  /** Custom infographic generation prompt prefix; empty = built-in default. */
+  infographicPrompt: string
+  quickActions: WriteQuickActionV1[]
+}
+
 export type WriteSettingsV1 = {
   defaultWorkspaceRoot: string
   activeWorkspaceRoot: string
   workspaces: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
+  selectionAssist: WriteSelectionAssistSettingsV1
 }
 
 export type ClawSettingsPatchV1 = Partial<Omit<ClawSettingsV1, 'skills' | 'im' | 'channels' | 'tasks'>> & {
@@ -452,8 +640,12 @@ export type ScheduleSettingsPatchV1 = Partial<
   tasks?: Array<Partial<ScheduledTaskV1>>
 }
 
-export type WriteSettingsPatchV1 = Partial<Omit<WriteSettingsV1, 'inlineCompletion'>> & {
+export type WriteSettingsPatchV1 = Partial<Omit<WriteSettingsV1, 'inlineCompletion' | 'selectionAssist'>> & {
   inlineCompletion?: Partial<WriteInlineCompletionSettingsV1>
+  selectionAssist?: Partial<Omit<WriteSelectionAssistSettingsV1, 'quickActions'>> & {
+    /** Replaced wholesale when present. */
+    quickActions?: Array<Partial<WriteQuickActionV1>>
+  }
 }
 
 export type ClawGeneratedFileV1 = {

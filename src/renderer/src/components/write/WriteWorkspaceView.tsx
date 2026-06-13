@@ -25,7 +25,16 @@ import {
   buildWriteInlineEditCompletionRequest,
   buildWriteInlineEditDraft
 } from '../../write/inline-edit'
+import type { WriteBlockType } from '../../write/block-type'
+import { toggleWriteInlineFormat, type WriteInlineFormatKind } from '../../write/inline-format'
+import { resolveWriteQuickActions, type ResolvedWriteQuickAction } from '../../write/quick-actions'
 import { createWriteRecentEdit } from '../../write/recent-edits'
+import {
+  beginPendingInfographic,
+  buildPendingInfographicMarkdown,
+  finishPendingInfographic,
+  replacePendingInfographicInText
+} from '../../write/infographic-pending'
 import { startWriteWorkspaceFileWatch } from '../../write/write-file-watch'
 import type { WriteRichEditorHandle } from '../../write/tiptap/WriteRichEditor'
 import { useWriteSplitScrollSync } from './use-write-split-scroll-sync'
@@ -33,6 +42,7 @@ import { WriteWorkspaceEmptyState } from './WriteWorkspaceEmptyState'
 import { WriteWorkspaceToolbar } from './WriteWorkspaceToolbar'
 import { WriteInlineAgent } from './WriteInlineAgent'
 import { WriteWorkspaceDocumentPane } from './WriteWorkspaceDocumentPane'
+import type { WriteMarkdownEditorHandle } from './WriteMarkdownEditor'
 import {
   INLINE_EDIT_RECENT_CONTEXT_CHARS,
   WRITE_AUTOSAVE_MS,
@@ -73,10 +83,14 @@ export function WriteWorkspaceView({
     rootDirectory,
     inlineCompletion,
     inlineCompletionApiReady,
+    selectionAssist,
     imageGenReady,
     fileContent,
     imageDataUrl,
     imageMimeType,
+    pdfDataBase64,
+    pdfMimeType,
+    pdfMtimeMs,
     fileSize,
     fileTruncated,
     fileError,
@@ -108,10 +122,14 @@ export function WriteWorkspaceView({
       rootDirectory: s.rootDirectory,
       inlineCompletion: s.inlineCompletion,
       inlineCompletionApiReady: s.inlineCompletionApiReady,
+      selectionAssist: s.selectionAssist,
       imageGenReady: s.imageGenReady,
       fileContent: s.fileContent,
       imageDataUrl: s.imageDataUrl,
       imageMimeType: s.imageMimeType,
+      pdfDataBase64: s.pdfDataBase64,
+      pdfMimeType: s.pdfMimeType,
+      pdfMtimeMs: s.pdfMtimeMs,
       fileSize: s.fileSize,
       fileTruncated: s.fileTruncated,
       fileError: s.fileError,
@@ -145,16 +163,17 @@ export function WriteWorkspaceView({
   const exportNoticeTimerRef = useRef<number | null>(null)
   const inlineAgentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const richHandleRef = useRef<WriteRichEditorHandle | null>(null)
+  const markdownHandleRef = useRef<WriteMarkdownEditorHandle | null>(null)
   const [inlineAgentValue, setInlineAgentValue] = useState('')
-  const [inlineAgentOpen, setInlineAgentOpen] = useState(false)
+  const [pointerSelecting, setPointerSelecting] = useState(false)
   const [inlineEditInFlight, setInlineEditInFlight] = useState(false)
-  const [infographicInFlight, setInfographicInFlight] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<WriteExportFormat | typeof WRITE_RICH_CLIPBOARD_ACTION | null>(null)
   const [exportNotice, setExportNotice] = useState<WriteNotice | null>(null)
   const workspaceReady = workspaceRoot.trim().length > 0
   const activeFileIsImage = activeFileKind === 'image'
+  const activeFileIsPdf = activeFileKind === 'pdf'
   const activeFileIsText = activeFileKind === 'text'
   const isMarkdown = activeFilePath && activeFileIsText ? isMarkdownFile(activeFilePath) : true
   const renderSafety = getWriteRenderSafety({
@@ -166,11 +185,12 @@ export function WriteWorkspaceView({
   const debouncedPreviewContent = useDebouncedValue(fileContent, writePreviewDebounceMs(fileContent.length))
   const saveLabel = activeFileIsImage
     ? t('writeImagePreview')
+    : activeFileIsPdf ? t('writePdfPreview')
     : renderSafety.readOnly ? t('writeReadOnly') : formatSaveLabel(saveStatus, t)
-  const selectionAction = selection.charCount > 0 ? inlineAgentPosition(selection) : null
-  const selectionActionActive = Boolean(selectionAction)
-  const selectionActionLeft = selectionAction?.left
-  const selectionActionTop = selectionAction?.top
+  // Only surface the toolbar once the selection gesture settles: while the
+  // pointer is down (dragging to select) it stays hidden to avoid flicker.
+  const selectionAction =
+    selection.charCount > 0 && !pointerSelecting ? inlineAgentPosition(selection, { compact: activeFileIsPdf }) : null
   const activeFileLabel = activeFilePath
     ? writeRelativeToWorkspace(workspaceRoot, activeFilePath)
     : t('writeNoFileOpen')
@@ -218,12 +238,53 @@ export function WriteWorkspaceView({
     quoteCurrentSelection(workspaceRoot)
     setAssistantOpen(true)
     setInlineAgentValue('')
-    setInlineAgentOpen(false)
     if (onSubmitPrompt) {
       onSubmitPrompt(trimmed)
       return
     }
     setInput(input.trim() ? `${input.trim()}\n\n${trimmed}` : trimmed)
+  }
+
+  // Edit-mode quick actions rewrite the selection in place through the
+  // inline-edit pipeline; chat-mode actions (润色/解释) quote the selection and
+  // hand the prompt to the sidebar assistant (auto-expanding it).
+  const runQuickAction = (quickAction: ResolvedWriteQuickAction): void => {
+    if (quickAction.mode === 'edit') {
+      void submitInlineEdit(quickAction.prompt)
+      return
+    }
+    submitInlineAgent(quickAction.prompt)
+  }
+
+  const applyInlineFormat = (kind: WriteInlineFormatKind): void => {
+    if (!workspaceReady || !activeFilePath || renderSafety.readOnly) return
+    const richHandle = richModeActive ? richHandleRef.current : null
+    if (richHandle) {
+      richHandle.toggleInlineFormat(kind)
+      return
+    }
+    if (selection.ranges.length !== 1) return
+    const range = selection.ranges[0]
+    const replacement = toggleWriteInlineFormat(range.text, kind)
+    if (replacement === null) return
+    markdownHandleRef.current?.applyRangeReplacement(
+      { from: range.from, to: range.to },
+      range.text,
+      replacement
+    )
+  }
+
+  const applyBlockType = (type: WriteBlockType): void => {
+    if (!workspaceReady || !activeFilePath || renderSafety.readOnly) return
+    const richHandle = richModeActive ? richHandleRef.current : null
+    if (richHandle) {
+      // TipTap toggle* commands already turn the active type back to paragraph.
+      richHandle.setBlockType(type)
+      return
+    }
+    // Source mode has no toggle built in: re-selecting the active type clears it.
+    const effective = selection.blockType === type && type !== 'paragraph' ? 'paragraph' : type
+    markdownHandleRef.current?.setBlockType(effective)
   }
 
   const submitInlineEdit = async (prompt: string): Promise<void> => {
@@ -269,6 +330,12 @@ export function WriteWorkspaceView({
       const replacement = result.action?.kind === 'edit'
         ? result.action.replacement
         : result.completion
+      // An empty rewrite of non-empty text means the model failed to follow
+      // the instruction; applying it would silently delete the selection.
+      if (!replacement.trim() && draft.scope.text.trim()) {
+        setFileError(t('writeInlineEditEmpty'))
+        return
+      }
 
       if (richHandle) {
         const applied = richHandle.applyProjectedReplacement(
@@ -283,7 +350,6 @@ export function WriteWorkspaceView({
         }
         setSelection({ text: '', ranges: [], charCount: 0 })
         setInlineAgentValue('')
-        setInlineAgentOpen(false)
         setFileError(null)
         showExportNotice({ tone: 'success', message: t('writeInlineEditApplied') })
         return
@@ -323,7 +389,6 @@ export function WriteWorkspaceView({
       if (inlineEditRecord) recordRecentEdits([inlineEditRecord])
       setSelection({ text: '', ranges: [], charCount: 0 })
       setInlineAgentValue('')
-      setInlineAgentOpen(false)
       setFileError(null)
       showExportNotice({ tone: 'success', message: t('writeInlineEditApplied') })
     } catch (error) {
@@ -335,8 +400,10 @@ export function WriteWorkspaceView({
     }
   }
 
-  const generateInfographic = async (): Promise<void> => {
-    if (!workspaceReady || !activeFilePath || infographicInFlight) return
+  // Inserts an animated placeholder right away and resolves it in the
+  // background, so generation never blocks the editor.
+  const generateInfographic = (): void => {
+    if (!workspaceReady || !activeFilePath) return
     if (renderSafety.readOnly) {
       setFileError(t('writeReadOnlySaveDisabled'))
       return
@@ -351,63 +418,141 @@ export function WriteWorkspaceView({
     }
     const range = selection.ranges[0]
     const richHandle = richModeActive ? richHandleRef.current : null
-    setInfographicInFlight(true)
-    try {
-      const result = await window.kunGui.generateWriteInfographic({
-        text: selection.text.trim().slice(0, WRITE_INFOGRAPHIC_MAX_TEXT_CHARS),
-        filePath: activeFilePath,
-        workspaceRoot
-      })
-      if (!result.ok) {
-        setFileError(t('writeInfographicFailed', { message: result.message }))
+    const filePath = activeFilePath
+    const text = selection.text.trim().slice(0, WRITE_INFOGRAPHIC_MAX_TEXT_CHARS)
+    const pending = beginPendingInfographic()
+    const pendingMarkdown = buildPendingInfographicMarkdown(t('writeInfographicAlt'), pending.src)
+    const insertion = `\n\n${pendingMarkdown}\n`
+    // Insert after the line containing the selection end, not mid-sentence:
+    // a partial selection should never split its own paragraph.
+    const lineEndAfter = (content: string, offset: number): number => {
+      const nextBreak = content.indexOf('\n', offset)
+      return nextBreak < 0 ? content.length : nextBreak
+    }
+    if (richHandle) {
+      // Rich mode: insert at a projection offset so undo history and node
+      // structure stay intact.
+      const projection = richHandle.getProjectionText() ?? ''
+      const insertAt = lineEndAfter(projection, range.to)
+      const applied = richHandle.applyProjectedReplacement(
+        { from: insertAt, to: insertAt },
+        '',
+        insertion,
+        t('writeInfographicGenerate')
+      )
+      if (!applied) {
+        finishPendingInfographic(pending.id)
+        setFileError(t('writeInlineEditChanged'))
         return
       }
-      const insertion = `\n\n![${t('writeInfographicAlt')}](${result.relativePath})\n`
-      // Insert after the line containing the selection end, not mid-sentence:
-      // a partial selection should never split its own paragraph.
-      const lineEndAfter = (content: string, offset: number): number => {
-        const nextBreak = content.indexOf('\n', offset)
-        return nextBreak < 0 ? content.length : nextBreak
+    } else {
+      const latest = useWriteWorkspaceStore.getState()
+      if (
+        latest.activeFilePath !== filePath ||
+        latest.activeFileKind !== 'text' ||
+        latest.fileContent.slice(range.from, range.to) !== range.text
+      ) {
+        finishPendingInfographic(pending.id)
+        setFileError(t('writeInlineEditChanged'))
+        return
       }
-      if (richHandle) {
-        // Rich mode: insert at a projection offset so undo history and node
-        // structure stay intact.
-        const projection = richHandle.getProjectionText() ?? ''
-        const insertAt = lineEndAfter(projection, range.to)
-        const applied = richHandle.applyProjectedReplacement(
-          { from: insertAt, to: insertAt },
-          '',
-          insertion,
-          t('writeInfographicGenerate')
-        )
-        if (!applied) {
-          setFileError(t('writeInlineEditChanged'))
-          return
-        }
+      const insertAt = lineEndAfter(latest.fileContent, range.to)
+      setFileContent(
+        latest.fileContent.slice(0, insertAt) + insertion + latest.fileContent.slice(insertAt)
+      )
+    }
+    setSelection({ text: '', ranges: [], charCount: 0 })
+    setFileError(null)
+    void completeInfographicGeneration({
+      id: pending.id,
+      src: pending.src,
+      pendingMarkdown,
+      filePath,
+      text
+    })
+  }
+
+  const completeInfographicGeneration = async (job: {
+    id: string
+    src: string
+    pendingMarkdown: string
+    filePath: string
+    text: string
+  }): Promise<void> => {
+    let replacementMarkdown: string | null = null
+    let failureMessage: string | null = null
+    try {
+      const result = await window.kunGui.generateWriteInfographic({
+        text: job.text,
+        filePath: job.filePath,
+        workspaceRoot
+      })
+      if (result.ok) {
+        replacementMarkdown = `![${t('writeInfographicAlt')}](${result.relativePath})`
       } else {
-        const latest = useWriteWorkspaceStore.getState()
-        if (
-          latest.activeFilePath !== activeFilePath ||
-          latest.activeFileKind !== 'text' ||
-          latest.fileContent.slice(range.from, range.to) !== range.text
-        ) {
-          setFileError(t('writeInlineEditChanged'))
-          return
-        }
-        const insertAt = lineEndAfter(latest.fileContent, range.to)
-        setFileContent(
-          latest.fileContent.slice(0, insertAt) + insertion + latest.fileContent.slice(insertAt)
-        )
+        failureMessage = result.message
       }
-      setSelection({ text: '', ranges: [], charCount: 0 })
-      setFileError(null)
-      showExportNotice({ tone: 'success', message: t('writeInfographicInserted') })
     } catch (error) {
-      setFileError(t('writeInfographicFailed', {
-        message: error instanceof Error ? error.message : String(error)
-      }))
+      failureMessage = error instanceof Error ? error.message : String(error)
     } finally {
-      setInfographicInFlight(false)
+      finishPendingInfographic(job.id)
+    }
+
+    const applied = await resolveInfographicPlaceholder(job, replacementMarkdown)
+    if (failureMessage) {
+      setFileError(t('writeInfographicFailed', { message: failureMessage }))
+    } else if (applied) {
+      showExportNotice({ tone: 'success', message: t('writeInfographicReady') })
+    }
+  }
+
+  /** Swap the placeholder for the generated image — or remove it when
+   * `replacementMarkdown` is null. Returns false when the placeholder is
+   * gone (the user deleted it, which cancels the insertion). */
+  const resolveInfographicPlaceholder = async (
+    job: { src: string; pendingMarkdown: string; filePath: string },
+    replacementMarkdown: string | null
+  ): Promise<boolean> => {
+    const latest = useWriteWorkspaceStore.getState()
+    if (latest.activeFilePath === job.filePath && latest.activeFileKind === 'text') {
+      // Node-level swap keeps the rich editor's undo history clean; the text
+      // fallback covers the source editor (no rich handle mounted).
+      const handle = richHandleRef.current
+      if (handle?.replaceImageBySrc(job.src, replacementMarkdown ?? '')) return true
+      const next = replacePendingInfographicInText(
+        latest.fileContent,
+        job.pendingMarkdown,
+        replacementMarkdown
+      )
+      if (next === null) return false
+      setFileContent(next)
+      return true
+    }
+    // The document was switched away mid-generation; opening another file
+    // flushed it to disk with the placeholder inside, so patch it on disk.
+    if (
+      typeof window.kunGui?.readWorkspaceFile !== 'function' ||
+      typeof window.kunGui?.writeWorkspaceFile !== 'function'
+    ) {
+      return false
+    }
+    try {
+      const file = await window.kunGui.readWorkspaceFile({ path: job.filePath, workspaceRoot })
+      if (!file.ok || file.truncated) return false
+      const next = replacePendingInfographicInText(
+        file.content,
+        job.pendingMarkdown,
+        replacementMarkdown
+      )
+      if (next === null) return false
+      const written = await window.kunGui.writeWorkspaceFile({
+        path: job.filePath,
+        workspaceRoot,
+        content: next
+      })
+      return written.ok
+    } catch {
+      return false
     }
   }
 
@@ -526,15 +671,31 @@ export function WriteWorkspaceView({
     setModeMenuOpen(false)
   }, [activeFilePath, previewMode])
 
+  // Reset the AI-edit draft whenever the selection changes; the menu input is
+  // always present (no open/close toggle) and must not carry stale text over.
   useEffect(() => {
-    if (!selectionActionActive || !inlineAgentOpen) return
-    window.requestAnimationFrame(() => inlineAgentTextareaRef.current?.focus())
-  }, [inlineAgentOpen, selectionActionActive, selectionActionLeft, selectionActionTop])
-
-  useEffect(() => {
-    setInlineAgentOpen(false)
     setInlineAgentValue('')
   }, [selection.charCount, selection.text])
+
+  // Hide the toolbar while a pointer drag is selecting text inside the editor;
+  // it reappears on pointer release once the selection has settled.
+  useEffect(() => {
+    const handleDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && editorPaneRef.current?.contains(target)) {
+        setPointerSelecting(true)
+      }
+    }
+    const handleUp = (): void => setPointerSelecting(false)
+    window.addEventListener('pointerdown', handleDown)
+    window.addEventListener('pointerup', handleUp)
+    window.addEventListener('pointercancel', handleUp)
+    return () => {
+      window.removeEventListener('pointerdown', handleDown)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleUp)
+    }
+  }, [])
 
   useEffect(() => {
     if (!exportMenuOpen && !modeMenuOpen) return
@@ -661,6 +822,11 @@ export function WriteWorkspaceView({
   const previewWidth = previewMode === 'split'
     ? 'min-w-0 flex-1 basis-1/2'
     : 'min-w-0 flex-1'
+  // Edit-mode quick actions rewrite the document, so drop them on read-only
+  // files; chat-mode actions (which only quote into the sidebar) still apply.
+  const inlineQuickActions = resolveWriteQuickActions(selectionAssist.quickActions, t).filter(
+    (quickAction) => quickAction.mode !== 'edit' || (activeFileIsText && !renderSafety.readOnly)
+  )
   const richModeActive =
     previewMode === 'rich' && isMarkdown && renderSafety.livePreviewEnabled && activeFileIsText
   const liveModeActive = previewMode === 'live' && renderSafety.livePreviewEnabled
@@ -705,6 +871,7 @@ export function WriteWorkspaceView({
     <div className="write-workspace-view ds-no-drag flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-3 sm:px-4 md:px-6 lg:px-8">
       <WriteWorkspaceToolbar
         activeFileIsImage={activeFileIsImage}
+        activeFileIsPdf={activeFileIsPdf}
         activeFileIsText={activeFileIsText}
         activeFileLabel={activeFileLabel}
         activeFileName={activeFileName}
@@ -728,7 +895,6 @@ export function WriteWorkspaceView({
         setPreviewMode={setPreviewMode}
         onCopyRichText={() => void copyCurrentFileAsRichText()}
         onExportFile={(format) => void exportCurrentFile(format)}
-        onPickWorkspace={() => void pickWriteWorkspace()}
         onSave={() => {
           if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
           void flushSave(workspaceRoot)
@@ -736,15 +902,19 @@ export function WriteWorkspaceView({
         onToggleLeftSidebar={onToggleLeftSidebar}
       />
       <div className="flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden pb-3 pt-3">
-        <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-ds-border-muted bg-ds-card/92 shadow-[0_12px_32px_rgba(15,23,42,0.04)] backdrop-blur-xl">
+        <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-ds-border-muted bg-ds-card/92 shadow-[0_12px_32px_rgba(20,47,95,0.04)] backdrop-blur-xl">
           <WriteWorkspaceDocumentPane
             activeFilePath={activeFilePath}
             activeFileIsImage={activeFileIsImage}
+            activeFileIsPdf={activeFileIsPdf}
             activeFileIsText={activeFileIsText}
             fileLoading={fileLoading}
             fileContent={fileContent}
             imageDataUrl={imageDataUrl}
             imageMimeType={imageMimeType}
+            pdfDataBase64={pdfDataBase64}
+            pdfMimeType={pdfMimeType}
+            pdfMtimeMs={pdfMtimeMs}
             fileSize={fileSize}
             workspaceRoot={workspaceRoot}
             workspaceName={workspaceName}
@@ -759,6 +929,7 @@ export function WriteWorkspaceView({
             editorAppearance={editorAppearance}
             richModeActive={richModeActive}
             richHandleRef={richHandleRef}
+            markdownHandleRef={markdownHandleRef}
             debouncedPreviewContent={debouncedPreviewContent}
             isMarkdown={isMarkdown}
             inlineCompletion={inlineCompletion}
@@ -787,32 +958,36 @@ export function WriteWorkspaceView({
         </div>
 
       </div>
-      {selectionAction && activeFilePath && activeFileIsText ? (
+      {selectionAction && activeFilePath && (activeFileIsText || activeFileIsPdf) ? (
         <WriteInlineAgent
           action={selectionAction}
-          open={inlineAgentOpen}
           value={inlineAgentValue}
           inFlight={inlineEditInFlight}
           textareaRef={inlineAgentTextareaRef}
-          onOpen={() => setInlineAgentOpen(true)}
-          onClose={() => setInlineAgentOpen(false)}
           onValueChange={setInlineAgentValue}
           onSubmitPrompt={submitInlineAgent}
-          onApplyEdit={(value) => void submitInlineEdit(value)}
-          infographicEnabled={imageGenReady && isMarkdown && !renderSafety.readOnly}
-          infographicInFlight={infographicInFlight}
-          onGenerateInfographic={() => void generateInfographic()}
+          onApplyEdit={(value) => activeFileIsPdf ? submitInlineAgent(value) : void submitInlineEdit(value)}
+          askOnly={activeFileIsPdf}
+          preferAbove={activeFileIsPdf}
+          formattingEnabled={activeFileIsText && isMarkdown && !renderSafety.readOnly}
+          onApplyFormat={applyInlineFormat}
+          blockType={selection.blockType}
+          onSetBlockType={applyBlockType}
+          quickActions={inlineQuickActions}
+          onQuickAction={runQuickAction}
+          infographicEnabled={activeFileIsText && imageGenReady && isMarkdown && !renderSafety.readOnly}
+          onGenerateInfographic={generateInfographic}
         />
       ) : null}
 
       {fileError ? (
-        <div className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full border border-red-200/70 bg-red-50/92 px-4 py-2 text-[13px] text-red-700 shadow-[0_14px_32px_rgba(15,23,42,0.12)] dark:border-red-900/60 dark:bg-red-950/84 dark:text-red-200">
+        <div className="pointer-events-none fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full border border-red-200/70 bg-red-50/92 px-4 py-2 text-[13px] text-red-700 shadow-[0_14px_32px_rgba(20,47,95,0.12)] dark:border-red-900/60 dark:bg-red-950/84 dark:text-red-200">
           {fileError}
         </div>
       ) : null}
       {exportNotice ? (
         <div
-          className={`pointer-events-none fixed left-1/2 z-40 -translate-x-1/2 rounded-full border px-4 py-2 text-[13px] shadow-[0_14px_32px_rgba(15,23,42,0.12)] ${
+          className={`pointer-events-none fixed left-1/2 z-40 -translate-x-1/2 rounded-full border px-4 py-2 text-[13px] shadow-[0_14px_32px_rgba(20,47,95,0.12)] ${
             exportNotice.tone === 'error'
               ? 'border-red-200/70 bg-red-50/92 text-red-700 dark:border-red-900/60 dark:bg-red-950/84 dark:text-red-200'
               : 'border-emerald-200/80 bg-emerald-50/92 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/84 dark:text-emerald-200'

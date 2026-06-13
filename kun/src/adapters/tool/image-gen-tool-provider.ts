@@ -360,6 +360,34 @@ export function createImageGenClient(config: {
   return new OpenAiCompatImageClient(config.baseUrl!, config.apiKey!)
 }
 
+/**
+ * Endpoint URL for an OpenAI-compatible images API. Mirrors the chat
+ * client's base-url rule so the same provider baseUrl works for both:
+ * a versioned base (`…/v1`) gets the endpoint appended, anything else
+ * gets `/v1` inserted first (e.g. `https://zenmux.ai/api` →
+ * `…/api/v1/images/generations`). A fully-qualified endpoint URL is
+ * kept, including re-routing between generations and edits.
+ */
+export function openAiCompatImageUrl(
+  baseUrl: string,
+  endpoint: 'generations' | 'edits'
+): string {
+  const path = `images/${endpoint}`
+  let normalized = baseUrl.trim().replace(/\/+$/, '')
+  if (!normalized) return `/v1/${path}`
+  const lower = normalized.toLowerCase()
+  if (lower.endsWith(`/${path}`)) return normalized
+  for (const known of ['images/generations', 'images/edits']) {
+    if (lower.endsWith(`/${known}`)) {
+      normalized = normalized.slice(0, -known.length).replace(/\/+$/, '')
+      break
+    }
+  }
+  const lastSegment = normalized.split('/').pop()?.toLowerCase() ?? ''
+  if (/^v\d+$/.test(lastSegment)) return `${normalized}/${path}`
+  return `${normalized}/v1/${path}`
+}
+
 export class OpenAiCompatImageClient implements ImageGenClient {
   readonly id = 'openai-compat'
   private readonly baseUrl: string
@@ -381,7 +409,7 @@ export class OpenAiCompatImageClient implements ImageGenClient {
         ...(includeResponseFormat ? { response_format: 'b64_json' } : {})
       })
     return this.requestImage(
-      `${this.baseUrl}/images/generations`,
+      openAiCompatImageUrl(this.baseUrl, 'generations'),
       (includeResponseFormat) => ({
         headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
         body: body(includeResponseFormat)
@@ -404,7 +432,7 @@ export class OpenAiCompatImageClient implements ImageGenClient {
       return form
     }
     return this.requestImage(
-      `${this.baseUrl}/images/edits`,
+      openAiCompatImageUrl(this.baseUrl, 'edits'),
       (includeResponseFormat) => ({
         headers: { Authorization: `Bearer ${this.apiKey}` },
         body: buildForm(includeResponseFormat)
@@ -475,7 +503,7 @@ export class MiniMaxImageClient implements ImageGenClient {
     return this.requestImage({
       model: request.model,
       prompt: request.prompt,
-      ...minimaxSizeFields(request.size),
+      ...minimaxImageDimensionFields(request.model, request.size),
       response_format: 'base64',
       n: 1
     }, request)
@@ -485,7 +513,7 @@ export class MiniMaxImageClient implements ImageGenClient {
     return this.requestImage({
       model: request.model,
       prompt: request.prompt,
-      ...minimaxSizeFields(request.size),
+      ...minimaxImageDimensionFields(request.model, request.size),
       subject_reference: request.images.map((image) => ({
         type: 'character',
         image_file: `data:${image.mimeType};base64,${image.data.toString('base64')}`
@@ -555,13 +583,47 @@ function minimaxImageGenerationUrl(baseUrl: string): string {
   return `${normalized}/v1/image_generation`
 }
 
-function minimaxSizeFields(size: string | undefined): Record<string, number> {
+// aspect_ratio values both MiniMax image models accept (21:9 is image-01
+// only, and image-01 receives explicit width/height instead).
+const MINIMAX_ASPECT_RATIOS: Array<{ label: string; value: number }> = [
+  { label: '1:1', value: 1 },
+  { label: '16:9', value: 16 / 9 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '3:2', value: 3 / 2 },
+  { label: '2:3', value: 2 / 3 },
+  { label: '3:4', value: 3 / 4 },
+  { label: '9:16', value: 9 / 16 }
+]
+
+/**
+ * MiniMax dimension fields for a `WxH` size. Per the t2i API docs only
+ * image-01 accepts explicit width/height (range [512, 2048], multiples
+ * of 8); image-01-live rejects them with status 2013, so every other model
+ * gets the nearest supported aspect_ratio instead. Nearest (not exact)
+ * because mapImageSize rounds edges to multiples of 8 — e.g. 3:2 at the 1K
+ * tier becomes 1024x680.
+ */
+export function minimaxImageDimensionFields(
+  model: string,
+  size: string | undefined
+): Record<string, unknown> {
   const match = size?.trim().match(/^(\d+)x(\d+)$/)
   if (!match) return {}
   const width = Number(match[1])
   const height = Number(match[2])
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return {}
-  return { width, height }
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return {}
+  if (model.trim() === 'image-01') return { width, height }
+  const target = width / height
+  let best = MINIMAX_ASPECT_RATIOS[0]
+  let bestDiff = Number.POSITIVE_INFINITY
+  for (const candidate of MINIMAX_ASPECT_RATIOS) {
+    const diff = Math.abs(Math.log(candidate.value / target))
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = candidate
+    }
+  }
+  return { aspect_ratio: best.label }
 }
 
 function withTimeout(signal: AbortSignal, timeoutMs: number): AbortSignal {

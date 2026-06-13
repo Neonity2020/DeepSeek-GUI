@@ -13,9 +13,12 @@ import {
 } from './FloatingComposer'
 import {
   FloatingComposerModelPicker,
+  buildComposerModelMenuGroups,
   calculateFloatingMenuPlacement,
   calculateFloatingSubmenuPlacement,
+  composerMenuSupportsModel,
   composerReasoningEffortRequestValue,
+  normalizeComposerReasoningEffort
 } from './FloatingComposerModelPicker'
 import { getGoalPanelDraftObjective } from './floating-composer-commands'
 import { useChatStore } from '../../store/chat-store'
@@ -139,9 +142,20 @@ describe('FloatingComposer file references', () => {
 })
 
 describe('FloatingComposer model controls', () => {
-  it('maps the low reasoning chip to disabled thinking for faster turns', () => {
-    expect(composerReasoningEffortRequestValue('low')).toBe('off')
+  it('passes explicit reasoning choices through to the runtime', () => {
+    expect(composerReasoningEffortRequestValue('off')).toBe('off')
+    expect(composerReasoningEffortRequestValue('low')).toBe('low')
     expect(composerReasoningEffortRequestValue('max')).toBe('max')
+  })
+
+  it('falls back to the model default when the selected model does not support the current effort', () => {
+    expect(normalizeComposerReasoningEffort('max', {
+      reasoning: {
+        supportedEfforts: ['off', 'low', 'medium', 'high'],
+        defaultEffort: 'high',
+        requestProtocol: 'mimo-chat-completions'
+      }
+    })).toBe('high')
   })
 
   it('anchors the model menu to the trigger using the rendered menu height', () => {
@@ -191,6 +205,65 @@ describe('FloatingComposer model controls', () => {
 
     expect(placement.left).toBe(474)
     expect(placement.top).toBe(642)
+  })
+
+  it('keeps non-text models out of the composer model menu', () => {
+    const group = {
+      modelProfiles: {
+        'glm-4v': {
+          inputModalities: ['text', 'image'],
+          outputModalities: ['text'],
+          supportsToolCalling: true,
+          messageParts: ['text', 'image_url']
+        },
+        'banana-canvas': {
+          inputModalities: ['text'],
+          outputModalities: ['image'],
+          supportsToolCalling: false,
+          messageParts: ['text']
+        }
+      }
+    } satisfies Parameters<typeof composerMenuSupportsModel>[0]
+
+    expect(composerMenuSupportsModel(group, 'glm-4v')).toBe(true)
+    expect(composerMenuSupportsModel(group, 'unknown-chat-model')).toBe(true)
+    expect(composerMenuSupportsModel(group, 'banana-canvas')).toBe(false)
+    expect(composerMenuSupportsModel(group, 'whisper-1')).toBe(false)
+    expect(composerMenuSupportsModel(group, 'dall-e-3')).toBe(false)
+    expect(composerMenuSupportsModel(group, 'seedream-4-0-250828')).toBe(false)
+    expect(composerMenuSupportsModel(group, 'text-embedding-3-large')).toBe(false)
+  })
+
+  it('keeps provider model aliases out of the ungrouped fallback menu', () => {
+    const groups = buildComposerModelMenuGroups({
+      composerModelGroups: [{
+        providerId: 'minimax-token-plan',
+        label: 'MiniMax Token Plan',
+        modelIds: ['minimax-m3'],
+        modelProfiles: {
+          'minimax-m3': {
+            aliases: ['MiniMax-M3'],
+            inputModalities: ['text', 'image'],
+            outputModalities: ['text'],
+            supportsToolCalling: true,
+            messageParts: ['text', 'image_url']
+          }
+        }
+      }],
+      modelOptions: ['MiniMax-M3', 'loose-model'],
+      ungroupedLabel: 'Other models'
+    })
+
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({
+      providerId: 'minimax-token-plan',
+      modelIds: ['minimax-m3']
+    })
+    expect(groups[1]).toMatchObject({
+      providerId: '__composer_models__',
+      label: 'Other models',
+      modelIds: ['loose-model']
+    })
   })
 
   it('keeps the reasoning strength visible in the model control', () => {

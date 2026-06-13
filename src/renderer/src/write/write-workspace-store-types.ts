@@ -1,4 +1,4 @@
-import type { WriteInlineCompletionSettingsV1 } from '@shared/app-settings'
+import type { WriteInlineCompletionSettingsV1, WriteSelectionAssistSettingsV1 } from '@shared/app-settings'
 import type { WorkspaceEntry } from '@shared/workspace-file'
 import type { WriteEditorSelectionState } from '../components/write/WriteMarkdownEditor'
 import type { WriteQuotedSelection } from './quoted-selection'
@@ -6,13 +6,15 @@ import type { WriteRecentEdit } from './recent-edits'
 
 export type WritePreviewMode = 'rich' | 'source' | 'live' | 'split' | 'preview'
 export type WriteSaveStatus = 'saved' | 'dirty' | 'saving' | 'error'
-export type WriteActiveFileKind = 'text' | 'image'
+export type WriteActiveFileKind = 'text' | 'image' | 'pdf'
 
 export type WriteWorkspaceState = {
   defaultWorkspaceRoot: string
   workspaceRoots: string[]
   inlineCompletion: WriteInlineCompletionSettingsV1
   inlineCompletionApiReady: boolean
+  /** Selection toolbar AI assists: quick action prompts + infographic prompt. */
+  selectionAssist: WriteSelectionAssistSettingsV1
   /** True when the image generation provider is fully configured (enables 生成信息图). */
   imageGenReady: boolean
   settingsLoading: boolean
@@ -28,6 +30,9 @@ export type WriteWorkspaceState = {
   fileContent: string
   imageDataUrl: string
   imageMimeType: string
+  pdfDataBase64: string
+  pdfMimeType: string
+  pdfMtimeMs: number
   fileSize: number
   fileTruncated: boolean
   fileError: string | null

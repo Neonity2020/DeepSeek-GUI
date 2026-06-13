@@ -375,11 +375,7 @@ export type ThreadUsageSnapshot = {
   totalTokens: number
   costUsd: number
   costCny: number | null
-  cacheSavingsUsd: number
-  cacheSavingsCny: number | null
   tokenEconomySavingsTokens: number
-  tokenEconomySavingsUsd: number
-  tokenEconomySavingsCny: number | null
   turns: number
 }
 

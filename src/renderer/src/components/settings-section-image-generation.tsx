@@ -1,11 +1,11 @@
-import { useState, type ReactElement } from 'react'
+import { useState, useEffect, type ReactElement } from 'react'
 import {
   CUSTOM_IMAGE_GENERATION_PROVIDER_ID,
   DEFAULT_IMAGE_GENERATION_PROTOCOL,
   IMAGE_GENERATION_PROTOCOLS,
   resolveKunImageGenerationSettings
 } from '@shared/app-settings'
-import { SecretInput, SettingsCard, SettingRow, Toggle } from './settings-controls'
+import { ModelSelect, SecretInput, SettingsCard, SettingRow, Toggle } from './settings-controls'
 
 const DEFAULT_IMAGE_GENERATION = {
   enabled: false,
@@ -45,6 +45,10 @@ export function ImageGenerationSettingsSection({ ctx }: { ctx: Record<string, an
     ? []
     : selectedProviderImage?.models ?? []
   const [showImageGenApiKey, setShowImageGenApiKey] = useState(false)
+  const [defaultSizeInput, setDefaultSizeInput] = useState(imageGeneration.defaultSize)
+  useEffect(() => {
+    setDefaultSizeInput(imageGeneration.defaultSize)
+  }, [imageGeneration.defaultSize])
   const updateImageGeneration = (patch: Record<string, unknown>): void => {
     updateKun({
       imageGeneration: {
@@ -159,18 +163,24 @@ export function ImageGenerationSettingsSection({ ctx }: { ctx: Record<string, an
             description={t('imageGenModelDesc')}
             control={
               <div className="w-full min-w-0 md:max-w-md">
-                <input
-                  list="image-generation-model-options"
-                  className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                  value={imageGeneration.model || effectiveImageGeneration.model}
-                  placeholder={t('imageGenModelPlaceholder')}
-                  onChange={(e) => updateImageGeneration({ model: e.target.value })}
-                />
-                <datalist id="image-generation-model-options">
-                  {imageModelOptions.map((model: string) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
+                {usingCustomProvider ? (
+                  <input
+                    className="w-full min-w-0 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
+                    value={imageGeneration.model}
+                    placeholder={t('imageGenModelPlaceholder')}
+                    onChange={(e) => updateImageGeneration({ model: e.target.value })}
+                  />
+                ) : (
+                  <ModelSelect
+                    value={imageModelOptions.includes(imageGeneration.model) ? imageGeneration.model : ''}
+                    options={imageModelOptions}
+                    defaultLabel={t('modelSelectDefaultOption', {
+                      model: imageModelOptions[0] ?? ''
+                    })}
+                    selectClassName={selectControlClass}
+                    onChange={(model) => updateImageGeneration({ model })}
+                  />
+                )}
               </div>
             }
           />
@@ -180,9 +190,10 @@ export function ImageGenerationSettingsSection({ ctx }: { ctx: Record<string, an
             control={
               <input
                 className="w-40 rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] text-ds-ink shadow-sm focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/30"
-                value={imageGeneration.defaultSize}
+                value={defaultSizeInput}
                 placeholder="1024x1024"
-                onChange={(e) => updateImageGeneration({ defaultSize: e.target.value })}
+                onChange={(e) => setDefaultSizeInput(e.target.value)}
+                onBlur={() => updateImageGeneration({ defaultSize: defaultSizeInput })}
               />
             }
           />

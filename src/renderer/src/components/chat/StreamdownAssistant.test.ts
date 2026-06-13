@@ -1,19 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { shouldAnimateStreamingText } from './StreamdownAssistant'
+import { STREAMING_ANIMATED } from './StreamdownAssistant'
 
-describe('shouldAnimateStreamingText', () => {
-  it('keeps the lightweight reveal for short single-line text', () => {
-    expect(shouldAnimateStreamingText('正在检查配置。')).toBe(true)
-    expect(shouldAnimateStreamingText('Checking the CSS variables.')).toBe(true)
+describe('STREAMING_ANIMATED', () => {
+  it('never staggers chars — staggering queues bursty SSE chunks and looks choppy', () => {
+    expect(STREAMING_ANIMATED).not.toHaveProperty('stagger')
   })
 
-  it('lets multiline streaming render from the actual SSE sequence', () => {
-    expect(shouldAnimateStreamingText('First line\nSecond line')).toBe(false)
-    expect(shouldAnimateStreamingText('First paragraph\n\nSecond paragraph')).toBe(false)
-  })
-
-  it('does not animate structured markdown while it is still streaming', () => {
-    expect(shouldAnimateStreamingText('- one\n- two')).toBe(false)
-    expect(shouldAnimateStreamingText('Use `npm test` next.')).toBe(false)
+  it('keeps a long overlap window so consecutive chunks blend into one reveal', () => {
+    expect(STREAMING_ANIMATED.duration).toBeGreaterThanOrEqual(400)
+    expect(STREAMING_ANIMATED.sep).toBe('char')
   })
 })

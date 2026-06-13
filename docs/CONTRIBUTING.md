@@ -172,7 +172,7 @@ Examples:
 
 - `docs: rewrite README and contribution guides`
 - `feat: improve runtime connection recovery`
-- `fix: handle missing DeepSeek binary path`
+- `fix: handle missing Kun binary path`
 
 ## Reporting Issues
 
@@ -202,4 +202,11 @@ If requirements are unclear, ask for clarification before making broad architect
 
 ## License
 
-By contributing to Kun, you agree that your contributions will be licensed under the [MIT License](../LICENSE).
+External contributions are accepted under the [Contributor License Agreement](../CLA.md).
+By submitting a contribution, you agree to grant the project owner the rights
+described in the CLA, including the right to sublicense and relicense your
+contribution as part of Kun under commercial, proprietary, noncommercial, or
+other license terms.
+
+The project itself remains available under the [PolyForm Noncommercial License 1.0.0](../LICENSE)
+unless the project owner grants a separate written commercial license.

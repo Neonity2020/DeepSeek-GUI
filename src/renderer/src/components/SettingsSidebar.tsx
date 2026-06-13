@@ -1,7 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
-import { Bot, ChevronLeft, Globe, ImageIcon, Keyboard, PencilLine, ServerCog, Settings, Smartphone } from 'lucide-react'
+import { AudioLines, Bot, ChevronLeft, Globe, ImageIcon, Keyboard, Mic, PencilLine, ServerCog, Settings, ShieldCheck, Smartphone, Sparkles } from 'lucide-react'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'agents' | 'permissions' | 'shortcuts' | 'easterEgg' | 'claw'
 
 export function SettingsSidebar({
   category,
@@ -55,13 +55,37 @@ export function SettingsSidebar({
           <ImageIcon className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('imageGen')}
         </button>
+        <button
+          type="button"
+          className={catCls('mediaGeneration')}
+          onClick={() => setCategory('mediaGeneration')}
+        >
+          <AudioLines className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('mediaGeneration')}
+        </button>
+        <button
+          type="button"
+          className={catCls('speechToText')}
+          onClick={() => setCategory('speechToText')}
+        >
+          <Mic className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('speechToText')}
+        </button>
         <button type="button" className={catCls('agents')} onClick={() => setCategory('agents')}>
           <Bot className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('agents')}
         </button>
+        <button type="button" className={catCls('permissions')} onClick={() => setCategory('permissions')}>
+          <ShieldCheck className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('permissions')}
+        </button>
         <button type="button" className={catCls('shortcuts')} onClick={() => setCategory('shortcuts')}>
           <Keyboard className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('keyboardShortcuts')}
+        </button>
+        <button type="button" className={catCls('easterEgg')} onClick={() => setCategory('easterEgg')}>
+          <Sparkles className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('easterEgg')}
         </button>
         <button type="button" className={catCls('claw')} onClick={() => setCategory('claw')}>
           <Smartphone className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />

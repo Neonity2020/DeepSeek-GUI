@@ -10,6 +10,7 @@ function makeBaseState(): WriteWorkspaceState {
     workspaceRoots: [],
     inlineCompletion: defaultWriteSettings().inlineCompletion,
     inlineCompletionApiReady: false,
+    selectionAssist: defaultWriteSettings().selectionAssist,
     imageGenReady: false,
     settingsLoading: false,
     settingsError: null,
@@ -133,5 +134,35 @@ describe('write workspace file actions', () => {
 
     expect(result).toBe(false)
     expect(get().fileError).toBe('delete failed')
+  })
+
+  it('opens PDF files through the read-only PDF preview state', async () => {
+    const readWorkspacePdf = vi.fn(async () => ({
+      ok: true as const,
+      path: '/tmp/write/papers/study.pdf',
+      dataBase64: 'JVBERi0xLjQKJSVFT0Y=',
+      mimeType: 'application/pdf' as const,
+      size: 14,
+      mtimeMs: 1234
+    }))
+    installDsGui({
+      readWorkspacePdf
+    })
+    const { actions, get } = createHarness()
+
+    await actions.openFile('/tmp/write', '/tmp/write/papers/study.pdf')
+
+    expect(readWorkspacePdf).toHaveBeenCalledWith({
+      workspaceRoot: '/tmp/write',
+      path: '/tmp/write/papers/study.pdf'
+    })
+    expect(get().activeFileKind).toBe('pdf')
+    expect(get().activeFilePath).toBe('/tmp/write/papers/study.pdf')
+    expect(get().pdfDataBase64).toBe('JVBERi0xLjQKJSVFT0Y=')
+    expect(get().pdfMimeType).toBe('application/pdf')
+    expect(get().fileSize).toBe(14)
+    expect(get().pdfMtimeMs).toBe(1234)
+    expect(get().fileContent).toBe('')
+    expect(get().imageDataUrl).toBe('')
   })
 })

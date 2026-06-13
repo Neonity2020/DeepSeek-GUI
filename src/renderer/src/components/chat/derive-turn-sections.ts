@@ -156,9 +156,9 @@ export function deriveTurnSections({
         return [{ ...block, detail: detailText, filePath: resolvedFilePath }]
       }))
 
-  const generatedFileBlocks: ToolBlock[] = isProcessing
-    ? []
-    : turn.blocks.filter((block): block is ToolBlock => block.kind === 'tool' && hasGeneratedFiles(block))
+  const generatedFileBlocks: ToolBlock[] = turn.blocks.filter(
+    (block): block is ToolBlock => block.kind === 'tool' && hasGeneratedFiles(block)
+  )
 
   return { processBlocks, assistantContentBlocks, generatedFileBlocks, turnFileChanges }
 }

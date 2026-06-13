@@ -45,18 +45,21 @@ import {
   splitSettingsList
 } from './settings-utils'
 import { loadKunDiagnostics } from '../lib/load-kun-diagnostics'
-import { emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
+import { SETTINGS_CHANGED_EVENT, emitRendererSettingsChanged } from '../lib/keyboard-shortcut-settings'
 import {
   AgentsSettingsSection,
   ClawSettingsSection,
+  EasterEggSettingsSection,
   GeneralSettingsSection,
   ImageGenerationSettingsSection,
   KeyboardShortcutsSettingsSection,
+  MediaGenerationSettingsSection,
   ProvidersSettingsSection,
+  SpeechToTextSettingsSection,
   WriteSettingsSection
 } from './settings-sections'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'agents' | 'shortcuts' | 'claw'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'agents' | 'permissions' | 'shortcuts' | 'easterEgg' | 'claw'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type SkillRootOption = {
@@ -174,6 +177,15 @@ export function SettingsView(): ReactElement {
   }, [formTheme, formUiFontScale])
 
   useEffect(() => {
+    const onSettingsChanged = (event: Event): void => {
+      const next = (event as CustomEvent<AppSettingsV1>).detail
+      if (next) setForm(coerceRendererSettings(next))
+    }
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [])
+
+  useEffect(() => {
     if (typeof window.kunGui?.getLogPath !== 'function') return
     void window.kunGui.getLogPath().then((p) => setLogPath(p)).catch(() => undefined)
   }, [category])
@@ -228,12 +240,28 @@ export function SettingsView(): ReactElement {
       setCategory('imageGeneration')
       return
     }
+    if (settingsSection === 'mediaGeneration') {
+      setCategory('mediaGeneration')
+      return
+    }
+    if (settingsSection === 'speechToText') {
+      setCategory('speechToText')
+      return
+    }
+    if (settingsSection === 'permissions') {
+      setCategory('permissions')
+      return
+    }
     if (settingsSection === 'claw') {
       setCategory('claw')
       return
     }
     if (settingsSection === 'shortcuts') {
       setCategory('shortcuts')
+      return
+    }
+    if (settingsSection === 'easterEgg') {
+      setCategory('easterEgg')
       return
     }
     setCategory('agents')
@@ -246,19 +274,23 @@ export function SettingsView(): ReactElement {
       settingsSection === 'providers' ||
       settingsSection === 'write' ||
       settingsSection === 'imageGeneration' ||
+      settingsSection === 'mediaGeneration' ||
+      settingsSection === 'speechToText' ||
       settingsSection === 'claw' ||
       settingsSection === 'shortcuts' ||
-      category !== 'agents'
+      settingsSection === 'easterEgg' ||
+      (category !== 'agents' && category !== 'permissions')
     ) {
       return
     }
     const refs: Record<
-      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'imageGeneration' | 'claw' | 'shortcuts'>,
+      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'claw' | 'shortcuts' | 'easterEgg'>,
       HTMLDivElement | null
     > = {
       agents: agentsSectionRef.current,
       skill: skillSectionRef.current,
-      mcp: mcpSectionRef.current
+      mcp: mcpSectionRef.current,
+      permissions: permissionsSectionRef.current
     }
     const target = refs[settingsSection]
     if (!target) return
@@ -266,6 +298,15 @@ export function SettingsView(): ReactElement {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
   }, [category, form, settingsSection])
+
+  useEffect(() => {
+    if (!form || category !== 'permissions') return
+    const target = permissionsSectionRef.current
+    if (!target) return
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [category, form])
 
   useEffect(() => {
     return () => {
@@ -348,7 +389,7 @@ export function SettingsView(): ReactElement {
   }
 
   useEffect(() => {
-    if (category !== 'agents' || mcpLoaded || mcpLoading) return
+    if ((category !== 'agents' && category !== 'permissions') || mcpLoaded || mcpLoading) return
     void loadMcpConfig()
   }, [category, mcpLoaded, mcpLoading])
 
@@ -423,7 +464,7 @@ export function SettingsView(): ReactElement {
   }, [formWorkspaceRoot])
 
   useEffect(() => {
-    if (category !== 'agents') return
+    if (category !== 'agents' && category !== 'permissions') return
     void refreshKunDiagnostics()
   }, [category, refreshKunDiagnostics])
 
@@ -489,8 +530,10 @@ export function SettingsView(): ReactElement {
       }, 1500)
     } catch (e) {
       if (version !== draftVersion.current) return
-      setSaveError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      setSaveError(message)
       setSaveStatus('error')
+      void window.kunGui?.logError?.('settings', 'Failed to apply settings', { message }).catch(() => undefined)
     }
   }
 
@@ -847,12 +890,24 @@ export function SettingsView(): ReactElement {
             </span>
           </div>
 
+          {saveStatus === 'error' && saveError ? (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] leading-5 text-red-800 shadow-sm dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-200"
+            >
+              {saveError}
+            </div>
+          ) : null}
+
           {category === 'general' ? <GeneralSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'providers' ? <ProvidersSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'write' ? <WriteSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'imageGeneration' ? <ImageGenerationSettingsSection ctx={settingsSectionContext} /> : null}
-          {category === 'agents' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'mediaGeneration' ? <MediaGenerationSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'speechToText' ? <SpeechToTextSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'agents' || category === 'permissions' ? <AgentsSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'shortcuts' ? <KeyboardShortcutsSettingsSection ctx={settingsSectionContext} /> : null}
+          {category === 'easterEgg' ? <EasterEggSettingsSection ctx={settingsSectionContext} /> : null}
           {category === 'claw' ? <ClawSettingsSection ctx={settingsSectionContext} /> : null}
         </div>
       </div>

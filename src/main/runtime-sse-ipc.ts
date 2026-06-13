@@ -133,14 +133,15 @@ async function fetchSseWithStartTimeout(
 export function registerRuntimeSseIpc(options: {
   ipcMain: IpcMain
   store: JsonSettingsStore
-  ensureRuntime: (settings: AppSettingsV1) => Promise<void>
+  ensureRuntime: (settings: AppSettingsV1) => Promise<AppSettingsV1 | void>
   logError: (category: string, message: string, detail?: unknown) => void
 }): void {
   const { ipcMain, store, ensureRuntime, logError } = options
   ipcMain.handle('runtime:sse:start', async (event, args: unknown) => {
     const request = sseStartPayloadSchema.parse(args)
-    const s = await store.load()
-    await ensureRuntime(s)
+    const loadedSettings = await store.load()
+    const ensuredSettings = await ensureRuntime(loadedSettings)
+    const s = ensuredSettings ?? loadedSettings
     const requestedId = request.streamId?.trim() ?? ''
     const id = requestedId || randomUUID()
     const existing = sseControllers.get(id)

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTranslation } from 'react-i18next'
@@ -13,6 +13,7 @@ import { parseClawUserPromptForDisplay, type ClawUserPromptDisplay } from '@shar
 import { openWorkspacePathInEditor } from '../../lib/open-workspace-path'
 import { DiffView } from '../DiffView'
 import { AssistantMarkdown } from './AssistantMarkdown'
+import { ImagePreviewLightbox } from './ImagePreviewLightbox'
 import { ModelMetaTag, WritePromptMetaDisclosure } from './message-timeline-cards'
 import { readNumber, formatDuration, formatToolTitle } from './message-timeline-tools'
 
@@ -509,6 +510,7 @@ function MediaPreviewTile({
   const { t } = useTranslation('common')
   const workspaceRoot = useChatStore((s) => s.workspaceRoot)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
   const title = mediaName(media)
   const filePath = mediaPath(media)
   const mimeType = media.mimeType || (mediaIsImage(media) ? 'image' : mediaIsVideo(media) ? 'video' : '')
@@ -522,6 +524,7 @@ function MediaPreviewTile({
       : variant === 'tool'
         ? 'block h-32 w-40 overflow-hidden rounded-lg border border-ds-border-muted bg-ds-card shadow-sm'
         : 'block h-28 w-36 overflow-hidden rounded-lg border border-ds-border-muted bg-ds-card shadow-sm'
+  const revealClass = variant === 'user' ? '' : ' ds-media-printer-reveal'
   const mediaClass = 'h-full w-full object-contain'
   const canSave = Boolean(filePath || dataUrlPayload(previewUrl))
   const saveLabel =
@@ -577,11 +580,22 @@ function MediaPreviewTile({
 
   if (previewUrl && mediaIsImage(media)) {
     return (
-      <figure className={`${tileClass} relative`} title={title}>
-        <img src={previewUrl} alt={title} className={mediaClass} loading="lazy" />
+      <figure className={`${tileClass}${revealClass} relative`} title={title}>
         <button
           type="button"
-          onClick={() => void handleSaveAs()}
+          onClick={() => setImagePreviewOpen(true)}
+          className="block h-full w-full cursor-zoom-in"
+          title={t('imagePreviewOpen', { name: title })}
+          aria-label={t('imagePreviewOpen', { name: title })}
+        >
+          <img src={previewUrl} alt={title} className={mediaClass} loading="lazy" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            void handleSaveAs()
+          }}
           disabled={!canSave || saveState === 'saving'}
           title={saveLabel}
           aria-label={saveLabel}
@@ -589,6 +603,16 @@ function MediaPreviewTile({
         >
           {saveIcon}
         </button>
+        <ImagePreviewLightbox
+          open={imagePreviewOpen}
+          src={previewUrl}
+          alt={title}
+          title={title}
+          downloadDisabled={!canSave || saveState === 'saving'}
+          downloadLabel={saveLabel}
+          onDownload={() => void handleSaveAs()}
+          onClose={() => setImagePreviewOpen(false)}
+        />
       </figure>
     )
   }
@@ -972,7 +996,7 @@ function UserInputBubble({
           : 'active'
   const questionCount = block.questions.length
   const containerClass = nested
-    ? `overflow-hidden rounded-[14px] border px-3.5 py-3 text-[13px] leading-5 shadow-[0_8px_22px_rgba(15,23,42,0.035)] ${
+    ? `overflow-hidden rounded-[14px] border px-3.5 py-3 text-[13px] leading-5 shadow-[0_8px_22px_rgba(20,47,95,0.035)] ${
         tone === 'error'
           ? 'border-red-300/65 bg-ds-card/88 dark:border-red-800/55 dark:bg-red-950/20'
           : tone === 'success'
@@ -981,7 +1005,7 @@ function UserInputBubble({
               ? 'border-ds-border-muted bg-ds-card/78'
               : 'border-accent/22 bg-ds-card/90'
       }`
-    : `overflow-hidden rounded-[16px] border px-4 py-4 text-[13px] leading-6 shadow-[0_14px_36px_rgba(15,23,42,0.055)] ${
+    : `overflow-hidden rounded-[16px] border px-4 py-4 text-[13px] leading-6 shadow-[0_14px_36px_rgba(20,47,95,0.055)] ${
         tone === 'error'
           ? 'border-red-300/70 bg-ds-card/90 dark:border-red-800/60 dark:bg-red-950/20'
           : tone === 'success'
@@ -1266,7 +1290,14 @@ function formatMessageDateTime(input: string, locale: string): string {
   }).format(date)
 }
 
-export function MessageBubble({ block, nested = false }: { block: ChatBlock; nested?: boolean }): ReactElement {
+/**
+ * Memoized so settled bubbles skip re-render while streaming deltas
+ * re-render only the live bubble; block references stay stable in the
+ * store for unchanged blocks.
+ */
+export const MessageBubble = memo(MessageBubbleImpl)
+
+function MessageBubbleImpl({ block, nested = false }: { block: ChatBlock; nested?: boolean }): ReactElement {
   const { t, i18n } = useTranslation('common')
   const resolveApproval = useChatStore((s) => s.resolveApproval)
   if (block.kind === 'user') {

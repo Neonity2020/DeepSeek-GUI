@@ -31,7 +31,8 @@ import type {
   WorkspaceFileTarget,
   WorkspaceFileWritePayload,
   WorkspaceFileWriteResult,
-  WorkspaceImageReadResult
+  WorkspaceImageReadResult,
+  WorkspacePdfReadResult
 } from '../../shared/workspace-file'
 import {
   canonicalPath,
@@ -49,6 +50,7 @@ import {
 
 const MAX_FILE_PREVIEW_BYTES = 1_500_000
 const MAX_IMAGE_PREVIEW_BYTES = 12 * 1024 * 1024
+const MAX_PDF_PREVIEW_BYTES = 64 * 1024 * 1024
 const WORKSPACE_IMAGE_DIR = 'img'
 
 const WORKSPACE_IMAGE_MIME_BY_EXT = new Map([
@@ -151,6 +153,41 @@ export async function readWorkspaceImage(
       dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
       mimeType,
       size: fileInfo.size
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+export async function readWorkspacePdf(
+  payload: WorkspaceFileTarget
+): Promise<WorkspacePdfReadResult> {
+  try {
+    const targetPath = await resolveOpenTargetPath(payload.path, payload.workspaceRoot)
+    const fileInfo = await stat(targetPath)
+    if (fileInfo.isDirectory()) {
+      return { ok: false, message: 'Cannot preview a directory.' }
+    }
+    if (fileInfo.size > MAX_PDF_PREVIEW_BYTES) {
+      return { ok: false, message: 'This PDF is too large to preview in Write mode.' }
+    }
+
+    const ext = extensionFromName(targetPath).toLowerCase()
+    if (ext !== '.pdf') {
+      return { ok: false, message: 'This file is not a PDF document.' }
+    }
+
+    const bytes = await readFile(targetPath)
+    return {
+      ok: true,
+      path: targetPath,
+      dataBase64: bytes.toString('base64'),
+      mimeType: 'application/pdf',
+      size: fileInfo.size,
+      mtimeMs: fileInfo.mtimeMs
     }
   } catch (error) {
     return {

@@ -98,17 +98,23 @@ export function forgetCodeWorkspaceRoot(
 
 export function mergeComposerPickList(upstreamOk: boolean, upstreamIds: string[]): string[] {
   const ordered = new Set<string>()
-  ordered.add('auto')
   for (const id of DEFAULT_COMPOSER_MODEL_IDS) {
-    if (id !== 'auto') ordered.add(id)
+    ordered.add(id)
   }
   if (upstreamOk) {
     for (const id of upstreamIds) {
-      if (id.trim()) ordered.add(id.trim())
+      const trimmed = id.trim()
+      if (trimmed && trimmed !== 'auto') ordered.add(trimmed)
     }
   }
-  const tail = [...ordered].filter((id) => id !== 'auto').sort((a, b) => a.localeCompare(b))
-  return ['auto', ...tail]
+  return [...ordered].sort((a, b) => a.localeCompare(b))
+}
+
+export function fallbackComposerModel(pickList: readonly string[], runtimeDefault: string): string {
+  const allowed = new Set(pickList)
+  const preferred = runtimeDefault.trim()
+  if (preferred && preferred.toLowerCase() !== 'auto' && allowed.has(preferred)) return preferred
+  return DEFAULT_COMPOSER_MODEL_IDS.find((id) => allowed.has(id)) ?? pickList[0] ?? ''
 }
 
 export function newClawChannel(

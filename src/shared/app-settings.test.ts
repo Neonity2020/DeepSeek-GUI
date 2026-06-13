@@ -16,8 +16,13 @@ import {
   mergeScheduleSettings,
   defaultKunRuntimeSettings,
   defaultScheduleSettings,
+  defaultWriteSelectionAssistSettings,
   defaultWriteSettings,
+  getModelProviderPreset,
   defaultKeyboardShortcuts,
+  modelProviderPresetProfile,
+  mergeWriteSettings,
+  normalizeWriteSettings,
   isKunRuntimeInsecure,
   migrateLegacyAppSettings,
   normalizeAppSettings,
@@ -136,6 +141,42 @@ describe('kun defaults', () => {
       model: '',
       defaultSize: '',
       timeoutMs: 180000
+    })
+  })
+
+  it('defaults media generation to off with empty provider fields', () => {
+    expect(defaultKunRuntimeSettings().textToSpeech).toEqual({
+      enabled: false,
+      providerId: '',
+      protocol: 'openai-speech',
+      baseUrl: '',
+      apiKey: '',
+      model: '',
+      voice: '',
+      format: 'mp3',
+      timeoutMs: 120000
+    })
+    expect(defaultKunRuntimeSettings().musicGeneration).toEqual({
+      enabled: false,
+      providerId: '',
+      protocol: 'minimax-music',
+      baseUrl: '',
+      apiKey: '',
+      model: '',
+      format: 'mp3',
+      timeoutMs: 300000
+    })
+    expect(defaultKunRuntimeSettings().videoGeneration).toEqual({
+      enabled: false,
+      providerId: '',
+      protocol: 'minimax-video',
+      baseUrl: '',
+      apiKey: '',
+      model: '',
+      defaultDuration: 6,
+      defaultResolution: '1080P',
+      timeoutMs: 900000,
+      pollIntervalMs: 10000
     })
   })
 
@@ -428,6 +469,121 @@ describe('mergeKunRuntimeSettings', () => {
     expect(invalidSize.imageGeneration.defaultSize).toBe('')
     expect(invalidSize.imageGeneration.timeoutMs).toBe(180000)
   })
+
+  it('deep-merges media generation settings and normalizes invalid values', () => {
+    const current = defaultKunRuntimeSettings()
+    const next = mergeKunRuntimeSettings(current, {
+      textToSpeech: {
+        enabled: true,
+        protocol: 'minimax-t2a',
+        baseUrl: ' https://api.minimax.io ',
+        apiKey: 'sk-tts',
+        model: 'speech-2.8-hd',
+        voice: ' male-qn-qingse ',
+        format: 'wav'
+      },
+      musicGeneration: {
+        enabled: true,
+        baseUrl: ' https://api.minimax.io ',
+        apiKey: 'sk-music',
+        model: 'music-2.6'
+      },
+      videoGeneration: {
+        enabled: true,
+        baseUrl: ' https://api.minimax.io ',
+        apiKey: 'sk-video',
+        model: 'MiniMax-Hailuo-2.3',
+        defaultDuration: 10,
+        pollIntervalMs: 20000
+      }
+    })
+
+    expect(next.textToSpeech).toMatchObject({
+      enabled: true,
+      protocol: 'minimax-t2a',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-tts',
+      model: 'speech-2.8-hd',
+      voice: 'male-qn-qingse',
+      format: 'wav'
+    })
+    expect(next.musicGeneration).toMatchObject({
+      enabled: true,
+      protocol: 'minimax-music',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-music',
+      model: 'music-2.6',
+      format: 'mp3'
+    })
+    expect(next.videoGeneration).toMatchObject({
+      enabled: true,
+      protocol: 'minimax-video',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-video',
+      model: 'MiniMax-Hailuo-2.3',
+      defaultDuration: 10,
+      defaultResolution: '1080P',
+      pollIntervalMs: 20000
+    })
+
+    const invalid = mergeKunRuntimeSettings(next, {
+      textToSpeech: { format: 'aac', timeoutMs: -1 },
+      videoGeneration: { defaultDuration: -1, pollIntervalMs: -1 }
+    })
+    expect(invalid.textToSpeech.format).toBe('mp3')
+    expect(invalid.textToSpeech.timeoutMs).toBe(120000)
+    expect(invalid.videoGeneration.defaultDuration).toBe(6)
+    expect(invalid.videoGeneration.pollIntervalMs).toBe(10000)
+  })
+
+  it('defaults missing MiniMax media generation settings to the configured MiniMax provider', () => {
+    const minimax = getModelProviderPreset('minimax')
+    expect(minimax).not.toBeNull()
+    const minimaxProfile = modelProviderPresetProfile(minimax!, 'sk-minimax')
+    const {
+      textToSpeech: _textToSpeech,
+      musicGeneration: _musicGeneration,
+      videoGeneration: _videoGeneration,
+      ...legacyKun
+    } = defaultKunRuntimeSettings()
+    void _textToSpeech
+    void _musicGeneration
+    void _videoGeneration
+    const normalized = normalizeAppSettings({
+      ...settings(),
+      provider: {
+        ...defaultModelProviderSettings(),
+        providers: [
+          ...defaultModelProviderSettings().providers,
+          minimaxProfile
+        ]
+      },
+      agents: { kun: legacyKun as AppSettingsV1['agents']['kun'] }
+    })
+    const resolved = resolveKunRuntimeSettings(normalized)
+
+    expect(normalized.agents.kun.textToSpeech).toEqual(expect.objectContaining({
+      enabled: true,
+      providerId: 'minimax',
+      protocol: 'minimax-t2a',
+      model: 'speech-2.8-hd'
+    }))
+    expect(normalized.agents.kun.musicGeneration).toEqual(expect.objectContaining({
+      enabled: true,
+      providerId: 'minimax',
+      protocol: 'minimax-music',
+      model: 'music-2.6'
+    }))
+    expect(normalized.agents.kun.videoGeneration).toEqual(expect.objectContaining({
+      enabled: true,
+      providerId: 'minimax',
+      protocol: 'minimax-video',
+      model: 'MiniMax-Hailuo-2.3'
+    }))
+    expect(resolved.textToSpeech.apiKey).toBe('sk-minimax')
+    expect(resolved.musicGeneration.baseUrl).toBe('https://api.minimax.io')
+    expect(resolved.videoGeneration.baseUrl).toBe('https://api.minimax.io')
+  })
 })
 
 describe('kun envelope helpers', () => {
@@ -632,6 +788,7 @@ describe('schedule settings', () => {
       enabled: true,
       prompt: 'Old Claw task',
       workspaceRoot: '/tmp/workspace',
+      clawChannelId: 'channel-1',
       model: 'auto',
       reasoningEffort: 'medium' as const,
       mode: 'agent' as const,
@@ -674,6 +831,7 @@ describe('schedule settings', () => {
     expect(merged.tasks[0].schedule.everyMinutes).toBe(1)
     expect(merged.tasks[0].schedule.timeOfDay).toBe('09:00')
     expect(merged.tasks[0].schedule.atTime).toBe('')
+    expect(merged.tasks[0].clawChannelId).toBe('')
     expect(merged.tasks[0].reasoningEffort).toBe('medium')
   })
 })
@@ -727,6 +885,52 @@ describe('claw runtime prompts', () => {
 
     expect(prompt).toContain('Image generation is enabled for this Claw agent')
     expect(prompt).toContain('generate_image')
+  })
+
+  it('tells Claw agents to use media tools when media generation is configured', () => {
+    const state = settings()
+    state.agents.kun.textToSpeech = {
+      enabled: true,
+      providerId: '',
+      protocol: 'minimax-t2a',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-speech',
+      model: 'speech-2.8-hd',
+      voice: 'male-qn-qingse',
+      format: 'mp3',
+      timeoutMs: 120000
+    }
+    state.agents.kun.musicGeneration = {
+      enabled: true,
+      providerId: '',
+      protocol: 'minimax-music',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-music',
+      model: 'music-2.6',
+      format: 'mp3',
+      timeoutMs: 300000
+    }
+    state.agents.kun.videoGeneration = {
+      enabled: true,
+      providerId: '',
+      protocol: 'minimax-video',
+      baseUrl: 'https://api.minimax.io',
+      apiKey: 'sk-video',
+      model: 'MiniMax-Hailuo-2.3',
+      defaultDuration: 6,
+      defaultResolution: '1080P',
+      timeoutMs: 900000,
+      pollIntervalMs: 10000
+    }
+
+    const prompt = buildClawRuntimePrompt(state, 'make a voiceover, jingle, and video')
+
+    expect(prompt).toContain('Text-to-speech generation is enabled for this Claw agent')
+    expect(prompt).toContain('generate_speech')
+    expect(prompt).toContain('Music generation is enabled for this Claw agent')
+    expect(prompt).toContain('generate_music')
+    expect(prompt).toContain('Video generation is enabled for this Claw agent')
+    expect(prompt).toContain('generate_video')
   })
 
   it('parses managed IM prompts into compact display text', () => {
@@ -820,5 +1024,128 @@ describe('write inline completion runtime config', () => {
     state.write.inlineCompletion = legacyInlineCompletion as AppSettingsV1['write']['inlineCompletion']
 
     expect(resolveWriteInlineCompletionModel(state)).toBe('deepseek-chat')
+  })
+})
+
+describe('write selection assist settings', () => {
+  it('defaults to the built-in quick actions with empty overrides', () => {
+    const write = defaultWriteSettings()
+    expect(write.selectionAssist.infographicPrompt).toBe('')
+    expect(write.selectionAssist.quickActions).toEqual([
+      { id: 'polish', label: '', prompt: '', mode: 'chat' },
+      { id: 'explain', label: '', prompt: '', mode: 'chat' },
+      { id: 'reformat', label: '', prompt: '', mode: 'edit' }
+    ])
+  })
+
+  it('keeps the defaults when legacy settings lack selectionAssist', () => {
+    const write = normalizeWriteSettings({ defaultWorkspaceRoot: '/tmp/w' })
+    expect(write.selectionAssist).toEqual(defaultWriteSelectionAssistSettings())
+  })
+
+  it('replaces quick actions wholesale through a merge patch', () => {
+    const current = defaultWriteSettings()
+    const next = mergeWriteSettings(current, {
+      selectionAssist: {
+        quickActions: [{ id: 'polish', label: '提升写作', prompt: '改写得更好' }]
+      }
+    })
+    expect(next.selectionAssist.quickActions).toEqual([
+      { id: 'polish', label: '提升写作', prompt: '改写得更好', mode: 'chat' }
+    ])
+    expect(next.selectionAssist.infographicPrompt).toBe('')
+  })
+
+  it('honors an explicit quick action mode and defaults custom actions to chat', () => {
+    const write = normalizeWriteSettings({
+      selectionAssist: {
+        quickActions: [
+          { id: 'polish', label: '', prompt: '', mode: 'chat' },
+          { id: 'custom-1', label: 'x', prompt: 'y' }
+        ]
+      }
+    })
+    expect(write.selectionAssist.quickActions).toEqual([
+      { id: 'polish', label: '', prompt: '', mode: 'chat' },
+      { id: 'custom-1', label: 'x', prompt: 'y', mode: 'chat' }
+    ])
+  })
+
+  it('preserves quick actions when only the infographic prompt changes', () => {
+    const current = mergeWriteSettings(defaultWriteSettings(), {
+      selectionAssist: {
+        quickActions: [{ id: 'custom-1', label: '重写', prompt: '重写这段' }]
+      }
+    })
+    const next = mergeWriteSettings(current, {
+      selectionAssist: { infographicPrompt: '手绘风格' }
+    })
+    expect(next.selectionAssist.infographicPrompt).toBe('手绘风格')
+    expect(next.selectionAssist.quickActions).toEqual([
+      { id: 'custom-1', label: '重写', prompt: '重写这段', mode: 'chat' }
+    ])
+  })
+
+  it('drops duplicate and id-less quick actions but keeps unfinished custom rows', () => {
+    const write = normalizeWriteSettings({
+      selectionAssist: {
+        quickActions: [
+          { id: 'polish', label: '', prompt: '' },
+          { id: 'polish', label: 'dupe', prompt: 'dupe' },
+          { id: '', label: 'no-id', prompt: 'no-id' },
+          { id: 'custom-1', label: '', prompt: '' }
+        ]
+      }
+    })
+    expect(write.selectionAssist.quickActions).toEqual([
+      { id: 'polish', label: '', prompt: '', mode: 'chat' },
+      { id: 'custom-1', label: '', prompt: '', mode: 'chat' }
+    ])
+  })
+
+  it('does not trim label or prompt text during normalization', () => {
+    const write = normalizeWriteSettings({
+      selectionAssist: {
+        quickActions: [{ id: 'polish', label: 'hello ', prompt: 'world ' }]
+      }
+    })
+    expect(write.selectionAssist.quickActions[0]).toEqual({
+      id: 'polish',
+      label: 'hello ',
+      prompt: 'world ',
+      mode: 'chat'
+    })
+  })
+
+  it('drops pristine retired built-ins and migrates pristine polish to the sidebar mode', () => {
+    // Stored rows from before proofread was retired and polish moved to chat.
+    const write = normalizeWriteSettings({
+      selectionAssist: {
+        quickActions: [
+          { id: 'polish', label: '', prompt: '', mode: 'edit' },
+          { id: 'proofread', label: '', prompt: '', mode: 'edit' },
+          { id: 'explain', label: '', prompt: '', mode: 'chat' }
+        ]
+      }
+    })
+    expect(write.selectionAssist.quickActions).toEqual([
+      { id: 'polish', label: '', prompt: '', mode: 'chat' },
+      { id: 'explain', label: '', prompt: '', mode: 'chat' }
+    ])
+  })
+
+  it('keeps customized retired or edit-mode rows as explicit user choices', () => {
+    const write = normalizeWriteSettings({
+      selectionAssist: {
+        quickActions: [
+          { id: 'proofread', label: '校对', prompt: '修正错别字', mode: 'edit' },
+          { id: 'polish', label: '', prompt: '自定义润色提示', mode: 'edit' }
+        ]
+      }
+    })
+    expect(write.selectionAssist.quickActions).toEqual([
+      { id: 'proofread', label: '校对', prompt: '修正错别字', mode: 'edit' },
+      { id: 'polish', label: '', prompt: '自定义润色提示', mode: 'edit' }
+    ])
   })
 })

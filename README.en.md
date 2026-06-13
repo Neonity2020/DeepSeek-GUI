@@ -1,21 +1,21 @@
 <p align="center">
-  <img src="src/asset/img/deepseek.png" width="96" alt="Kun icon">
+  <img src="src/asset/img/kun.png" width="96" alt="Kun icon">
 </p>
 
 # Kun
 
 [简体中文](./README.md) | English
 
-> Bring Kun's high-token-ROI local agent runtime into a desktop workbench: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks. Every token is steered toward requirements, code, decisions, and results.
+> A next-generation AI desktop app: **Code** for project work, **Write** for documents, and **Connect phone** for IM automation and scheduled tasks, turning cost-efficient models into usable, controllable, durable workflows.
 
-[Website](https://deepseek-gui.com) | [Download](https://deepseek-gui.com)
+[Download](https://github.com/KunAgent/Kun/releases) | [Docs](#documentation)
 
 [![GitHub release](https://img.shields.io/github/v/release/KunAgent/Kun?label=github)](https://github.com/KunAgent/Kun/releases)
-[![License](https://img.shields.io/github/license/KunAgent/Kun)](./LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](./LICENSE)
 
-Kun (formerly DeepSeek GUI) is a local desktop workbench for developers and frequent AI users. It uses its namesake local runtime (shipped under `kun/`) as the only agent runtime and turns the terminal agent experience into an easier, longer-lived app: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
+Kun is a next-generation desktop app for developers, creators, and frequent AI users. It brings a local agent runtime, project workspaces, a writing workbench, IM automation, planning/goals/review, and multimodal capabilities into one product: choose a workspace, start a task, watch reasoning and tool calls stream in, review file changes, and approve sensitive actions when needed.
 
-The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel like a reliable desktop partner for real project work. Kun's core advantage is high token ROI: the same context budget spends less on repeated prefixes, giant tool catalogs, and runaway output, and more on the information that actually moves the task forward.
+Kun ships with presets for three highly cost-efficient model providers: DeepSeek, Xiaomi MiMo, and MiniMax, while keeping provider profiles editable for compatible services. The goal is not another chat wrapper. It is to build the coolest AI application product: models that can reliably participate in real projects, long-form writing, team messages, and automated work, with each call turned into visible progress.
 
 ---
 
@@ -51,13 +51,13 @@ The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel 
 </p>
 <p align="center"><em>Web tools demo.</em></p>
 
-## Why Kun Delivers High Token ROI
+## Why Kun Is Fast, Stable, And Efficient
 
-Kun makes token economy the default behavior of the agent loop, not a cleanup step after the fact. It does more than compress text: before each model call, it decides which information is worth entering context.
+Kun makes token economy and context stability the default behavior of the agent loop, not a cleanup step after the fact. It does more than compress text: before each model call, it decides which information is worth entering context.
 
 | Kun advantage | Where the ROI comes from |
 | --- | --- |
-| **Cache-first agent loop** | Stable system prompts, tool schemas, and immutable prefixes make DeepSeek-native cache hits more likely, so long sessions do not keep paying for the same background. |
+| **Stable prefixes** | Stable system prompts, tool schemas, and immutable prefixes help upstream models with cache support reuse long-session background. |
 | **Tool context on demand** | When MCP catalogs are large, Kun can search for relevant tools first, then describe and call the target tool instead of sending every tool schema on every turn. |
 | **Context hygiene** | Long tool results, long arguments, base64 payloads, repeated tool loops, and low-value history are bounded while code, paths, errors, decisions, and open tasks are preserved. |
 | **Visible usage payback** | Runtime telemetry tracks cache hit/miss, token usage, and estimated savings; the GUI surfaces Token economy savings so cost return is observable over time. |
@@ -71,9 +71,10 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - Local workspace integration so the agent can read, edit, and create files in real projects.
 - Change review surfaces that make every file modification visible and inspectable.
 - First-run onboarding, settings, language/theme/font controls, notifications, local logs, and update entry points.
+- DeepSeek, Xiaomi MiMo, and MiniMax provider presets, with API key and Token Plan access modes plus editable custom compatible services.
 - Graphical Skill and MCP management so users can extend the agent without hand-editing every config file.
 - Connect phone automation with Feishu / Lark / WeChat integration, dedicated IM agents, local webhook / relay support, and scheduled tasks.
-- A dedicated Write workbench with writing spaces, a Markdown file tree, live editing/preview, inline completion, and selection-based inline agent actions.
+- A dedicated Write workbench with writing spaces, a Markdown file tree, live editing/preview, inline completion, selection-based inline agent actions, and image generation entry points.
 - New requirement drafts, plans, thread todos, long-running goals, and code review so tasks can move from idea to execution to review.
 - Pre-built macOS, Windows, and Linux installers; source builds remain available.
 
@@ -89,29 +90,27 @@ The result: Kun is built for real project work with long tasks, long sessions, a
 - **Change review**: inline diffs and a side review panel help you understand exactly what the agent changed.
 - **Controlled permissions**: choose read-only, workspace-write, full-access, or external sandbox modes, and decide when tool calls require approval.
 - **Managed runtime**: use the bundled Kun by default, or point the app at your own `kun` executable.
+- **Three provider presets**: DeepSeek, Xiaomi MiMo, and MiniMax are built in, with API keys, Token Plan keys, editable model lists, Base URL overrides, and custom providers.
+- **Multimodal capabilities**: image attachments, vision model input, Xiaomi MiMo speech recognition, and MiniMax image generation can be reused by chat, Write, and IM agents according to settings.
 - **Skill and MCP support**: create Skills, edit MCP config, add common tools, and open the related folders from the UI.
 - **Feature-flagged agent extensions**: Kun can enable MCP, web fetch/search, Skills, standalone CLI use, image attachments, cross-session memory, and delegated subagents by config; Settings shows the runtime-reported capability and diagnostics state.
 - **Connect phone**: run a background agent alongside normal chat, with current support for Feishu / Lark / WeChat, IM webhook / relay flows, and scheduled tasks.
 - **Scheduled tasks**: create one-time, daily, interval, or manual tasks with their own workspace, model, and reasoning effort so Kun can run while the computer is awake.
-- **Write mode**: manage `~/.kun/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get DeepSeek FIM short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
-- **High token ROI**: Kun keeps prompt prefixes stable, tracks DeepSeek-native cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
-- **Friendly first launch**: choose language, add your DeepSeek API key, and optionally set a compatible Base URL.
-- **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; model calls use your own DeepSeek API key.
+- **Write mode**: manage `~/.kun/write_workspace` and custom writing spaces, browse Markdown files, use live Markdown editing, preview relative images, get short completion / inspiration completion with optional cross-document BM25 + keyword retrieval, export the current document as `HTML / PDF / DOC / DOCX`, and invoke the writing assistant directly from selected text.
+- **High token ROI**: Kun keeps prompt prefixes stable, tracks provider cache hit/miss fields, compacts context and tool output, and uses MCP search to discover tools progressively so tokens stay focused on requirements, code, decisions, and results.
+- **Friendly first launch**: choose language and provider, add a DeepSeek / Xiaomi MiMo / MiniMax API key or Token Plan key, and optionally set a compatible Base URL.
+- **Local-first**: preferences, sessions, logs, and runtime config stay on your machine; model calls use your own provider credentials.
 - **English and Chinese UI**: switch languages from Settings at any time.
 - **Cross-platform use**: macOS `.dmg/.zip`, Windows `.exe`, and Linux `.AppImage`; source builds remain available.
 
 ## Runtime: Kun
 
-The only active local agent runtime in the Kun desktop app is the
-bundled runtime of the same name — **Kun** (shipped under `kun/`),
-which the whole project is named after. It is a self-contained
-TypeScript package that boots a local HTTP/SSE server as the
-single boundary between the GUI and the agent loop.
-
-The name Kun is inspired by the great fish in Zhuangzi's line,
-"In the northern sea there is a fish; its name is Kun." The idea is
-not a temporary chat shell, but a deeper local runtime that can carry
-longer context, richer tools, and sustained project collaboration.
+The local agent runtime in the Kun desktop app is the bundled
+TypeScript package of the same name — **Kun** (shipped under `kun/`).
+It boots a local HTTP/SSE server as the single boundary between the GUI
+and the agent loop: the GUI owns the visual workbench, approvals, and
+interaction, while the runtime owns model calls, tools, persistence,
+context compaction, and usage accounting.
 
 Kun's operating principle is to raise the ROI of every token. The
 user's context budget should go toward requirements, code, decisions,
@@ -121,24 +120,16 @@ optimized less for one-off questions and more for real workflows that
 read and write projects, call tools repeatedly, and carry context over
 long sessions.
 
-Kun fuses a design that has been battle-tested in the
-wild:
+Key runtime capabilities include:
 
-- **The cache-first agent loop borrowed from Reasonix**: immutable prompt prefix (with sha256 fingerprint), append-only session log, bounded TTL/LRU cache, inflight tracking with guaranteed cleanup, mid-turn steering queue, context compaction that preserves pinned constraints, and cache/usage telemetry.
-- **Token economy and tool-context optimization**: Kun stabilizes system prompts and tool schemas, reads DeepSeek-native cache hit/miss fields, bounds long tool results, long arguments, base64 payloads, and repeated tool loops, and can use `mcp_search` / `mcp_describe` / `mcp_call` to discover MCP tools progressively when a tool catalog is too large to advertise all at once.
+- **Stable prefixes and usage telemetry**: immutable prompt prefix with sha256 fingerprints, append-only session logs, bounded TTL/LRU caches, inflight tracking, mid-turn steering queues, context compaction, and cache/usage telemetry.
+- **Provider-aware model layer**: provider profiles manage DeepSeek, Xiaomi MiMo, MiniMax, and custom compatible services, including endpoint formats, model profiles, reasoning effort, vision input, speech recognition, and image generation.
+- **Token economy and tool-context optimization**: Kun stabilizes system prompts and tool schemas, reads provider-returned cache/usage fields, bounds long tool results, long arguments, base64 payloads, and repeated tool loops, and can use `mcp_search` / `mcp_describe` / `mcp_call` to discover MCP tools progressively.
 
-> Thanks to the Reasonix team for sharing the runnable references
-> that made this design pillar testable in the first place. Nearly
-> every performance trait of Kun — cache hit rate, token replay,
-> reconnect, and interruptable approvals — can be traced back to
-> this project. The full design rationale
-> and the borrow map live in
-> [`docs/kun-architecture.md`](docs/kun-architecture.md).
-
-If you want the dedicated write-up for cache behavior, including
-stable prefixes, tool schema canonicalization, DeepSeek native
-hit/miss accounting, tool-pair healing, and validation strategy, see
-[`docs/kun-cache-optimization.md`](docs/kun-cache-optimization.md).
+For the dedicated write-up on cache behavior, including stable
+prefixes, tool schema canonicalization, cache hit/miss accounting,
+tool-pair healing, and validation strategy, see
+[`docs/kun-cache-optimization.en.md`](docs/kun-cache-optimization.en.md).
 
 Kun's larger agent capabilities are controlled by feature flags:
 `capabilities.mcp` connects third-party MCP servers,
@@ -164,12 +155,10 @@ Renderer (React)
   → cache-first AgentLoop
 ```
 
-Settings live under **Settings → Agent runtime**: binary path, port,
-auto-start, API key, base URL, runtime token, data dir, model,
-approval policy, sandbox mode, and the insecure switch. If an older
-provider was saved before, settings are migrated into
-`agents.kun` on load; after saving, only Kun settings
-remain.
+Settings live under **Settings → Agent runtime** and **Settings → Model providers**:
+binary path, port, auto-start, provider, API key / Token Plan key,
+base URL, runtime token, data dir, model, approval policy, sandbox
+mode, the insecure switch, and speech / image-generation capabilities.
 
 The full endpoint list, CLI flags, environment variables, data dir
 layout, and SSE event schema are documented in
@@ -177,10 +166,10 @@ layout, and SSE event schema are documented in
 
 ## Who It Is For
 
-- Developers who want DeepSeek to work on real codebases without living in a terminal.
+- Developers who want AI to work on real codebases without living in a terminal.
 - Teams that need to see what the agent did, which files changed, and which operations required approval.
 - Users who maintain multiple projects or long-running conversations and want reusable Skill/MCP setup.
-- Anyone who wants a local desktop workbench connected to the official DeepSeek API or a compatible endpoint.
+- Anyone who wants one desktop app for DeepSeek, Xiaomi MiMo, MiniMax, and custom compatible services.
 
 ---
 
@@ -217,7 +206,7 @@ A dedicated Markdown writing workbench that keeps writing files, save state, and
 - Manage `~/.kun/write_workspace` plus custom writing spaces from the left file tree.
 - Switch between **Live / Source / Split / Preview**; Live keeps Markdown source on the active line and renders the rest.
 - Export the current Markdown document from the toolbar as `HTML / PDF / DOC / DOCX`, with best-effort preservation for headings, lists, code blocks, tables, and local images.
-- DeepSeek FIM short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
+- Short and inspiration completion, plus selection-based inline agent actions and a right-side writing assistant for summaries, outlines, and polish.
 
 ### Connect Phone
 
@@ -229,7 +218,7 @@ Background automation and IM integration, so Kun can keep handling phone message
 
 - Configure dedicated agents for Feishu / Lark / WeChat and other channels, each with its own profile, default model, and workspace.
 - Every IM agent gets its own thread, so you can debug replies and tool calls directly in the GUI.
-- Local webhook / relay support for team workflows and personal automation.
+- Local webhook / relay support for connecting Kun to team workflows and personal automation.
 - Scheduled tasks can run once, daily, on an interval, or manually. Each task creates a dedicated Kun thread and sends its configured prompt.
 
 ---
@@ -246,7 +235,7 @@ Download the latest build from [GitHub Releases](https://github.com/KunAgent/Kun
 | Windows | `.exe`, NSIS installer, x64 |
 | Linux | `.AppImage`, x64 |
 
-On first launch, enter your [DeepSeek API key](https://platform.deepseek.com/api_keys). If you use a DeepSeek/OpenAI-compatible endpoint, you can set a custom Base URL in Settings.
+On first launch, choose DeepSeek, Xiaomi MiMo, or MiniMax, then enter the related API key / Token Plan key. If you use a compatible service, you can also edit the Base URL and model list in Settings.
 
 ### Run from Source
 
@@ -262,7 +251,7 @@ npm run dev
 Requirements:
 
 - Node.js 20+
-- A DeepSeek API key
+- At least one model-provider API key or Token Plan key
 - Internet access during the first dependency install
 
 For slower network access in mainland China, use an npm mirror:
@@ -277,7 +266,7 @@ npm install --registry=https://registry.npmmirror.com
 
 1. Open Kun.
 2. Choose your interface language in the onboarding guide.
-3. Enter your DeepSeek API key; set a custom Base URL if needed.
+3. Choose DeepSeek, Xiaomi MiMo, or MiniMax, then enter an API key / Token Plan key; set a custom Base URL if needed.
 4. Choose a default workspace, or use the default directory created by the app.
 5. Start a new session and describe the task you want the agent to handle.
 
@@ -298,12 +287,13 @@ See [Workbench And Entry Points](#workbench-and-entry-points) above for Connect 
 
 Settings manages:
 
-- DeepSeek API key, Base URL, runtime port, and runtime token.
+- DeepSeek / Xiaomi MiMo / MiniMax providers, API keys / Token Plan keys, Base URLs, model lists, runtime port, and runtime token.
 - Auto-start for the local runtime, plus optional custom `kun` path.
 - Tool approval policy and filesystem access mode.
 - Default workspace, language, theme, font size, and completion notifications.
 - GUI updates and local error logs.
 - Skill creation, Skill folders, and MCP config editing.
+- Speech recognition, image generation, image attachments, and vision model input.
 - Connect phone automation, Feishu / Lark / WeChat connections, webhook / relay settings, and scheduled tasks.
 
 Keyboard shortcuts:
@@ -322,13 +312,13 @@ Write mode extends Kun from a code/chat workbench into a long-form writing works
 - Markdown live editing: openhanako inspired the CodeMirror decorations approach where the active line stays editable as Markdown source while inactive lines render headings, tasks, images, dividers, and tables through widgets.
 - Selection inline agent: openhanako inspired the selection-capture and floating-input interaction, so selected text can be sent with file path, line numbers, and bounded original text as structured context.
 - AI session isolation: Write uses Kun threads, but the GUI keeps a local write thread registry per writing space so write conversations do not pollute Code / Connect phone sidebars.
-- Text completion: writing completion bypasses the local Kun serve runtime (**Kun** is the bundled local HTTP/SSE agent runtime, the single boundary between the GUI and the agent loop — see the [Runtime: Kun](#runtime-kun) section above for details) and calls the DeepSeek FIM Completion API directly for low-latency ghost text. Short completion uses a short debounce, small token budget, and strict local filtering; inspiration completion uses a longer pause, larger token budget, and only runs at line ends or paragraph boundaries. Before completion, the app builds a short-TTL lightweight index over Markdown / text files in the writing space, retrieves cross-document snippets with BM25 + keyword matching, and injects them as a hidden Markdown comment so terminology, facts, and style stay consistent.
+- Text completion: writing completion uses a dedicated low-latency completion path so it does not block the local Kun serve agent loop. Short completion uses a short debounce, small token budget, and strict local filtering; inspiration completion uses a longer pause, larger token budget, and only runs at line ends or paragraph boundaries. Before completion, the app builds a short-TTL lightweight index over Markdown / text files in the writing space, retrieves cross-document snippets with BM25 + keyword matching, and injects them as a hidden Markdown comment so terminology, facts, and style stay consistent.
 
 ---
 
 ## Uninstall
 
-> New installers use `Kun` as the application name; old `DeepSeek GUI` data is migrated on first launch and compatibility links are kept for rollback.
+> New installers use `Kun` as the application name. If older local data exists, the app migrates it on first launch.
 
 ### Windows
 
@@ -363,7 +353,7 @@ By default, uninstalling removes the app but keeps local settings, sessions, and
 | Windows | `%APPDATA%\Kun` |
 | Linux | `~/.config/Kun` |
 
-Kun data lives under `~/.kun/data` or the configured Kun data dir. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need. The legacy `~/.deepseekgui/kun` path may remain as a compatibility link for rollback.
+Kun data lives under `~/.kun/data` or the configured Kun data dir. Check it before deleting, because it may contain sessions, MCP, or Skill settings you still need.
 
 ---
 
@@ -385,6 +375,7 @@ Project conventions:
 - Include a video or GIF when the UI changes.
 - Include unit tests when project logic changes.
 - Update both `README.md` and `README.en.md` when usage changes.
+- External contributions require acceptance of the [Contributor License Agreement](./CLA.md), so project licensing can remain centrally managed by the project owner.
 
 See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) and [DEVELOPMENT.md](./docs/DEVELOPMENT.md) for details.
 
@@ -405,8 +396,9 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 | Doc | Contents |
 | --- | --- |
-| [docs/kun-architecture.en.md](docs/kun-architecture.en.md) | Single-Kun runtime plan, GUI removal scope, HTTP/SSE contract, and legacy agent retirement notes |
+| [docs/kun-architecture.en.md](docs/kun-architecture.en.md) | Kun runtime architecture, GUI boundary, HTTP/SSE contract, and integration model |
 | [docs/kun-cache-optimization.en.md](docs/kun-cache-optimization.en.md) | Kun cache optimization, token economy, MCP search, tool-output compaction, and usage savings |
+| [docs/model-provider-presets.md](docs/model-provider-presets.md) | DeepSeek, Xiaomi MiMo, and MiniMax provider presets and model capabilities |
 | [docs/kun-contributing.en.md](docs/kun-contributing.en.md) | Kun contribution guide: hexagonal architecture, design patterns (Ports & Adapters / Functional Core Imperative Shell / event sourcing / explicit DI / composition root), four typical PR scenarios |
 | [kun/README.md](kun/README.md) | Kun package: CLI, env, data dir, HTTP API |
 | [CONTRIBUTING.en.md](docs/CONTRIBUTING.en.md) | Contribution guide |
@@ -418,27 +410,25 @@ For the full development workflow, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
 ## Thanks
 
-Kun stands on the shoulders of prior projects:
-
-- **Reasonix** — the cache-first agent loop. `ImmutablePrefix` (with sha256 fingerprint) and its explicit mutation API, `AppendOnlySessionLog` (in-memory window + JSONL on disk), `LruCache` / `TtlLruCache`, `InflightTracker` with `finally`-block cleanup, `SteeringQueue` for mid-turn user guidance, `ContextCompactor` that preserves pinned constraints, and `UsageCounter` + `CacheTelemetry` are direct TypeScript ports and refinements of Reasonix's design prototypes. Reasonix's split between reasoning events and assistant text, the `tool_call` / `tool_result` pairing via `callId`, and the usage replay pattern also flow directly into the Kun event contract.
-
-We are also grateful to:
+Kun stands on the shoulders of many excellent models, tools, and open-source projects. We are grateful to:
 
 - **[LobsterAI](https://github.com/netease-youdao/LobsterAI)**: its IM management, QR binding, agent binding, and customizable agent-profile flows inspired the Connect phone integration in this project.
-- **OpenHanako**: its Markdown live editing, writing-space, and selection inline-agent patterns heavily informed Write mode.
-- **[DeepSeek](https://github.com/deepseek-ai)**: for the models and API.
+- **[DeepSeek](https://github.com/deepseek-ai)**: for cost-efficient models and APIs.
+- **Xiaomi MiMo**: for cost-efficient models, Token Plan access, vision, and speech capabilities.
+- **MiniMax**: for cost-efficient text models and image generation.
 - Everyone who contributes issues, ideas, code, and documentation to Kun.
 
 <a href="https://github.com/KunAgent/Kun/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=KunAgent/Kun" />
 </a>
 
-> [!NOTE]
-> This project is not affiliated with DeepSeek Inc.
-
 ## License
 
-[MIT](./LICENSE)
+This project is provided for learning and reference only and may not be used for any commercial purpose. Commercial use, commercial distribution, SaaS/hosted services, resale, or integration into commercial products requires separate written authorization from the author.
+
+Educational institutions and public-interest educational organizations may use the project for noncommercial teaching, research, coursework, experiments, and learning/reference purposes without requesting separate authorization. This permission is not pass-through: it may not be extended to downstream customers, partners, commercial projects, hosted services, redistribution, sublicensing, or use as part of any commercial product or commercial service.
+
+See [PolyForm Noncommercial License 1.0.0](./LICENSE) for the full terms.
 
 ## Star History
 

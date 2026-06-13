@@ -144,6 +144,38 @@ describe('deriveTurnSections', () => {
     expect(result.processBlocks.map((block) => block.id)).toEqual(['tool_img', 'tool_read'])
   })
 
+  it('keeps generated media visible while the turn is still processing', () => {
+    const result = processingSections({
+      blocks: [
+        {
+          kind: 'tool',
+          id: 'tool_img',
+          summary: 'generate_image',
+          status: 'success',
+          toolKind: 'tool_call',
+          meta: {
+            generatedFiles: [
+              {
+                relativePath: '.deepseekgui-images/img.png',
+                mimeType: 'image/png'
+              }
+            ]
+          }
+        },
+        {
+          kind: 'tool',
+          id: 'tool_next',
+          summary: 'read',
+          status: 'running',
+          toolKind: 'tool_call'
+        }
+      ]
+    })
+
+    expect(result.generatedFileBlocks.map((block) => block.id)).toEqual(['tool_img'])
+    expect(result.processBlocks.map((block) => block.id)).toEqual(['tool_img', 'tool_next'])
+  })
+
   it('extracts file changes from JSON-wrapped tool output diffs', () => {
     const patch = [
       'diff --git a/demo.ts b/demo.ts',

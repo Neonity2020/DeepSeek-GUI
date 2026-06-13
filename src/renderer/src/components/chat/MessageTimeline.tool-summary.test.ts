@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { ChatBlock, NormalizedThread, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { MessageTimeline, summarizeToolBlock } from './MessageTimeline'
-import { MessageBubble } from './message-timeline-bubbles'
+import { GeneratedFilesPanel, MessageBubble } from './message-timeline-bubbles'
 import { ProcessSectionRow } from './message-timeline-process'
 
 const labels: Record<string, string> = {
@@ -162,6 +162,29 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).toContain('src="data:image/png;base64,abc"')
     expect(html).toContain('为什么图片完全没有识别啊')
     expect(html).not.toContain('Attachments 1')
+    expect(html).not.toContain('ds-media-printer-reveal')
+  })
+
+  it('renders generated image previews with the printer reveal effect', () => {
+    const block: ToolBlock = toolBlock({
+      id: 'tool_img',
+      summary: 'generate_image',
+      meta: {
+        generatedFiles: [
+          {
+            name: 'painting.png',
+            mimeType: 'image/png',
+            previewUrl: 'data:image/png;base64,paint'
+          }
+        ]
+      }
+    })
+
+    const html = renderToStaticMarkup(createElement(GeneratedFilesPanel, { blocks: [block] }))
+
+    expect(html).toContain('<img')
+    expect(html).toContain('src="data:image/png;base64,paint"')
+    expect(html).toContain('ds-media-printer-reveal')
   })
 
   it('renders managed Claw prompts as the user-visible message', () => {

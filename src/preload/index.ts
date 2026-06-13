@@ -6,9 +6,13 @@ const api = {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial) =>
     ipcRenderer.invoke('settings:set', partial),
+  saveSettingsSilent: (partial) =>
+    ipcRenderer.invoke('settings:save-silent', partial),
   runtimeRequest: (path, method, body) =>
     ipcRenderer.invoke('runtime:request', { path, method, body }),
+  restartRuntime: () => ipcRenderer.invoke('runtime:restart'),
   fetchUpstreamModels: () => ipcRenderer.invoke('upstream:models'),
+  probeModelProvider: (payload) => ipcRenderer.invoke('provider:probe', payload),
   getClawStatus: () => ipcRenderer.invoke('claw:status'),
   runClawTask: (taskId) =>
     ipcRenderer.invoke('claw:task:run', taskId),
@@ -52,6 +56,8 @@ const api = {
     ipcRenderer.invoke('file:read-workspace', options),
   readWorkspaceImage: (options) =>
     ipcRenderer.invoke('file:read-workspace-image', options),
+  readWorkspacePdf: (options) =>
+    ipcRenderer.invoke('file:read-workspace-pdf', options),
   saveWorkspaceFileAs: (payload) =>
     ipcRenderer.invoke('file:save-as', payload),
   writeWorkspaceFile: (payload) =>
@@ -86,8 +92,12 @@ const api = {
     ipcRenderer.invoke('write:copy-rich-text', payload),
   requestWriteInlineCompletion: (payload) =>
     ipcRenderer.invoke('write:inline-completion', payload),
+  retrieveWriteContext: (payload) =>
+    ipcRenderer.invoke('write:retrieve-context', payload),
   generateWriteInfographic: (payload) =>
     ipcRenderer.invoke('write:generate-infographic', payload),
+  transcribeSpeech: (payload) =>
+    ipcRenderer.invoke('speech:transcribe', payload),
   listWriteInlineCompletionDebugEntries: () =>
     ipcRenderer.invoke('write:inline-completion-debug:list'),
   clearWriteInlineCompletionDebugEntries: () =>
@@ -127,6 +137,14 @@ const api = {
     ipcRenderer.on('claw:channel-activity', wrapped)
     return () => ipcRenderer.removeListener('claw:channel-activity', wrapped)
   },
+  onRuntimeStatus: (handler) => {
+    const wrapped = (
+      _: Electron.IpcRendererEvent,
+      payload: Parameters<typeof handler>[0]
+    ) => handler(payload)
+    ipcRenderer.on('runtime:status', wrapped)
+    return () => ipcRenderer.removeListener('runtime:status', wrapped)
+  },
   mirrorClawChannelMessage: (threadId, text, direction) =>
     ipcRenderer.invoke('claw:channel:mirror', { threadId, text, direction }),
   mirrorClawChannelMessageToFeishu: (threadId, text, direction) =>
@@ -135,14 +153,19 @@ const api = {
     ipcRenderer.invoke('claw:task:create-from-text', {
       text,
       channelId: options?.channelId,
+      providerId: options?.providerId,
       modelHint: options?.modelHint,
+      reasoningEffort: options?.reasoningEffort,
       mode: options?.mode
     }),
   createScheduleTaskFromText: (text, options) =>
     ipcRenderer.invoke('schedule:task:create-from-text', {
       text,
       workspaceRoot: options?.workspaceRoot,
+      clawChannelId: options?.clawChannelId,
+      providerId: options?.providerId,
       modelHint: options?.modelHint,
+      reasoningEffort: options?.reasoningEffort,
       mode: options?.mode
     }),
   runDesktopCommand: (command) =>

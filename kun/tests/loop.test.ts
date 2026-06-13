@@ -134,7 +134,13 @@ describe('AgentLoop', () => {
       event.message === 'model request failed with status 400' &&
       event.code === 'http_400'
     )).toBe(true)
-    expect(events.some((event) => event.kind === 'turn_failed')).toBe(true)
+    const failed = events.find((event) => event.kind === 'turn_failed')
+    expect(failed).toMatchObject({
+      kind: 'turn_failed',
+      message: 'model request failed with status 400',
+      code: 'http_400',
+      severity: 'error'
+    })
   })
 
   it('emits named pipeline lifecycle stages for a model request', async () => {
@@ -160,6 +166,54 @@ describe('AgentLoop', () => {
       'post_send',
       'response_received'
     ])
+  })
+
+  it('records provider endpoint diagnostics for model send stages', async () => {
+    const model = {
+      provider: 'deepseek-compat',
+      model: 'MiniMax-M2',
+      config: {
+        baseUrl: 'https://user:secret@api.minimaxi.com/anthropic?token=hidden#debug',
+        endpointFormat: 'messages',
+        model: 'MiniMax-M2'
+      },
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    }
+    const h = makeHarness(model)
+    await bootstrapThread(h, {
+      request: { prompt: 'hello', model: 'mimo-v2.5-pro-ultraspeed' }
+    })
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    const preSend = events.find((event) =>
+      event.kind === 'pipeline_stage' && event.stage === 'pre_send'
+    )
+    const postSend = events.find((event) =>
+      event.kind === 'pipeline_stage' && event.stage === 'post_send'
+    )
+
+    expect(preSend).toMatchObject({
+      kind: 'pipeline_stage',
+      stage: 'pre_send',
+      details: {
+        model: 'mimo-v2.5-pro-ultraspeed',
+        provider: 'deepseek-compat',
+        providerBaseUrl: 'https://api.minimaxi.com/anthropic',
+        endpointFormat: 'messages',
+        configuredModel: 'MiniMax-M2'
+      }
+    })
+    expect(postSend).toMatchObject({
+      kind: 'pipeline_stage',
+      stage: 'post_send',
+      details: {
+        model: 'mimo-v2.5-pro-ultraspeed',
+        providerBaseUrl: 'https://api.minimaxi.com/anthropic'
+      }
+    })
   })
 
   it('aborts the turn when the abort signal fires', async () => {

@@ -3,11 +3,14 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { normalizePathSeparators, resolveTargetPathWithinWorkspace } from './workspace-paths'
 import {
+  normalizeWriteSettings,
   resolveKunImageGenerationSettings,
   type AppSettingsV1,
-  type KunImageGenerationSettingsV1
+  type KunImageGenerationSettingsV1,
+  type WriteSettingsPatchV1
 } from '../../shared/app-settings'
 import {
+  WRITE_INFOGRAPHIC_DEFAULT_PROMPT,
   WRITE_INFOGRAPHIC_MAX_TEXT_CHARS,
   type WriteInfographicRequest,
   type WriteInfographicResult
@@ -25,13 +28,6 @@ const INFOGRAPHIC_IMAGE_DIR = 'img'
 const INFOGRAPHIC_ASPECT_RATIO = '3:4'
 const INFOGRAPHIC_SIZE_TIER = '1K'
 
-const INFOGRAPHIC_PROMPT_PREFIX = [
-  'Create a clean, modern infographic that visually summarizes the following content.',
-  'Use a clear visual hierarchy: a short headline, grouped sections with icons or simple charts, and readable labels.',
-  'Keep the text in the infographic in the same language as the source content. Flat design, light background.',
-  'Source content:'
-].join(' ')
-
 export function isWriteInfographicConfigured(
   imageGeneration: Pick<KunImageGenerationSettingsV1, 'enabled' | 'baseUrl' | 'apiKey' | 'model'>
 ): boolean {
@@ -43,9 +39,10 @@ export function isWriteInfographicConfigured(
   )
 }
 
-export function buildWriteInfographicPrompt(text: string): string {
+export function buildWriteInfographicPrompt(text: string, customPrompt = ''): string {
   const clipped = text.trim().slice(0, WRITE_INFOGRAPHIC_MAX_TEXT_CHARS)
-  return `${INFOGRAPHIC_PROMPT_PREFIX}\n\n${clipped}`
+  const prefix = customPrompt.trim() || WRITE_INFOGRAPHIC_DEFAULT_PROMPT
+  return `${prefix}\n\n${clipped}`
 }
 
 export async function requestWriteInfographic(
@@ -75,10 +72,14 @@ export async function requestWriteInfographic(
   const size = imageGeneration.defaultSize.trim() ||
     mapImageSize(INFOGRAPHIC_ASPECT_RATIO, INFOGRAPHIC_SIZE_TIER, undefined)
 
+  const infographicPrompt = normalizeWriteSettings(
+    (settings as { write?: WriteSettingsPatchV1 }).write
+  ).selectionAssist.infographicPrompt
+
   let image: { data: Buffer; mimeType: string }
   try {
     image = await client.generate({
-      prompt: buildWriteInfographicPrompt(text),
+      prompt: buildWriteInfographicPrompt(text, infographicPrompt),
       model: imageGeneration.model.trim(),
       ...(size && size !== 'auto' ? { size } : {}),
       timeoutMs: imageGeneration.timeoutMs,

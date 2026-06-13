@@ -354,6 +354,40 @@ describe('create_plan tool mapping', () => {
     }
   })
 
+  it('lifts generated speech files from tool_result output into tool block meta', () => {
+    const item: CoreTurnItemJson = {
+      id: 'item_speech_1',
+      turnId: 'turn_1',
+      threadId: 'thr_1',
+      role: 'tool',
+      status: 'completed',
+      createdAt: '2024-01-01T00:00:00.000Z',
+      kind: 'tool_result',
+      toolName: 'generate_speech',
+      callId: 'call_speech_1',
+      output: {
+        files: [{
+          relativePath: '.deepseekgui-audio/speech.mp3',
+          absolutePath: '/tmp/project/.deepseekgui-audio/speech.mp3',
+          mimeType: 'audio/mpeg',
+          byteSize: 128
+        }]
+      }
+    }
+    const block = chatBlockFromItem(item)
+    expect(block).not.toBeNull()
+    if (block && block.kind === 'tool') {
+      expect(block.meta?.generatedFiles).toEqual([{
+        relativePath: '.deepseekgui-audio/speech.mp3',
+        absolutePath: '/tmp/project/.deepseekgui-audio/speech.mp3',
+        mimeType: 'audio/mpeg',
+        byteSize: 128
+      }])
+    } else {
+      throw new Error('expected tool block')
+    }
+  })
+
   it('omits meta attachments when tool_result output has none worth showing', () => {
     const item: CoreTurnItemJson = {
       id: 'item_img_2',
@@ -877,8 +911,6 @@ describe('usage event mapping', () => {
           cacheHitTokens: 80,
           cacheMissTokens: 20,
           tokenEconomySavingsTokens: 4096,
-          tokenEconomySavingsUsd: 0.0018,
-          tokenEconomySavingsCny: 0.0126,
           turns: 1
         }
       },
@@ -894,8 +926,6 @@ describe('usage event mapping', () => {
       cacheMissTokens: 20,
       cacheHitRate: 0.8,
       tokenEconomySavingsTokens: 4096,
-      tokenEconomySavingsUsd: 0.0018,
-      tokenEconomySavingsCny: 0.0126,
       turns: 1
     })
   })

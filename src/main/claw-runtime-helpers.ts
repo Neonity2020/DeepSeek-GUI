@@ -8,6 +8,7 @@ import type {
   ClawImProvider,
   ClawImRemoteSessionV1,
   ClawRunMode,
+  ScheduleReasoningEffort,
   ScheduleTaskFromTextResult
 } from '../shared/app-settings'
 import { CLAW_FEISHU_INBOUND_MESSAGE_HEADING } from '../shared/app-settings'
@@ -35,7 +36,14 @@ export type ClawRuntimeDeps = {
   resolveWeixinAccountUserId?: (accountId: string) => Promise<string>
   createScheduledTaskFromText?: (
     text: string,
-    options?: { workspaceRoot?: string | null; modelHint?: string | null; mode?: ClawRunMode | null }
+    options?: {
+      workspaceRoot?: string | null
+      clawChannelId?: string | null
+      providerId?: string | null
+      modelHint?: string | null
+      reasoningEffort?: ScheduleReasoningEffort | null
+      mode?: ClawRunMode | null
+    }
   ) => Promise<ScheduleTaskFromTextResult>
 }
 
@@ -81,6 +89,7 @@ export type RunPromptOptions = {
   waitForResult: boolean
   responseTimeoutMs: number
   source: 'task' | 'im'
+  providerId?: string
   threadId?: string
   channel?: ClawImChannelV1
   onTurnStarted?: (payload: { threadId: string; turnId: string }) => Promise<void> | void
@@ -217,7 +226,13 @@ function generatedFilesFromToolResult(
     const file = generatedFileFromRecord(output, workspaceRoot)
     return file ? [file] : []
   }
-  if (item.toolName === 'generate_image' && Array.isArray(output.files)) {
+  if (
+    (item.toolName === 'generate_image' ||
+      item.toolName === 'generate_speech' ||
+      item.toolName === 'generate_music' ||
+      item.toolName === 'generate_video') &&
+    Array.isArray(output.files)
+  ) {
     return output.files
       .map((entry) => outputRecord(entry))
       .filter((entry): entry is Record<string, unknown> => entry != null)
@@ -277,12 +292,11 @@ export function latestGeneratedFiles(
   const items = threadItems(detail)
   const turnId = options.turnId?.trim()
   if (turnId) {
-    const currentTurnFiles = extractGeneratedFiles(
+    return extractGeneratedFiles(
       items.filter((item) => item.turnId === turnId),
       workspaceRoot,
       maxFiles
     )
-    if (currentTurnFiles.length > 0) return currentTurnFiles
   }
   return extractGeneratedFiles(items, workspaceRoot, maxFiles)
 }
@@ -294,7 +308,8 @@ export function shouldSendGeneratedFilesForPrompt(prompt: string): boolean {
     /\b(send|attach|attachment|upload)\b/i.test(text) ||
     /给我(?:一个|一份)?.{0,24}(文档|文件|\.(?:md|txt|pdf|docx|xlsx|csv|pptx))/i.test(text) ||
     /(生成|画|绘制|做|制作|创建|出).{0,24}(图|图片|图像|照片|海报|插画|表情包|logo)/i.test(text) ||
-    /\b(generate|create|draw|make)\b.{0,40}\b(image|picture|photo|poster|illustration|meme|logo)\b/i.test(text)
+    /(生成|做|制作|创建|配|出).{0,24}(语音|音频|朗读|旁白|配音|音乐|歌曲|视频|短片|影片)/i.test(text) ||
+    /\b(generate|create|draw|make)\b.{0,40}\b(image|picture|photo|poster|illustration|meme|logo|speech|voice|audio|music|song|video)\b/i.test(text)
 }
 
 export function shouldDirectSendExistingGeneratedFilesForPrompt(prompt: string): boolean {

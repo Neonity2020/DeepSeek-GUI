@@ -29,6 +29,9 @@ describe('thread usage formatting', () => {
     expect(formatCost(0.125, 'zh', 0.88)).toBe('￥0.8800')
     expect(formatCost(0.125, 'zh-CN', 0.88)).toBe('￥0.8800')
     expect(formatCost(0.125, 'en')).toBe('$0.1250')
+    expect(formatCost(null, 'zh-CN', null)).toBe('-')
+    expect(formatCost(null, 'en', 0.88)).toBe('￥0.8800')
+    expect(formatCost(0.00000001, 'en')).toBe('$<0.0001')
   })
 
   it('keeps cache hit rate unknown for cachedTokens-only thread usage buckets', async () => {
@@ -63,9 +66,44 @@ describe('thread usage formatting', () => {
       outputTokens: 20,
       cachedTokens: 0,
       cacheMissTokens: 0,
-      cacheHitRate: null
+      cacheHitRate: null,
+      costUsd: null,
+      costCny: null
     })
     expect(runtimeRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps CNY-only thread cost instead of coercing it to USD zero', async () => {
+    const runtimeRequest = vi.fn<RuntimeRequest>(async (path) => {
+      if (path === threadUsagePath('thr_cny_only')) {
+        return {
+          ok: true,
+          status: 200,
+          body: JSON.stringify({
+            buckets: [
+              {
+                thread_id: 'thr_cny_only',
+                input_tokens: 100,
+                output_tokens: 20,
+                total_tokens: 120,
+                cost_usd: 0,
+                cost_cny: 0.06909,
+                turns: 1
+              }
+            ]
+          })
+        }
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+    setRuntimeRequest(runtimeRequest)
+
+    const usage = await loadThreadUsage('thr_cny_only')
+
+    expect(usage).toMatchObject({
+      costUsd: null,
+      costCny: 0.06909
+    })
   })
 
   it('uses explicit aggregate thread cache telemetry when available', async () => {
@@ -105,11 +143,7 @@ describe('thread usage formatting', () => {
       cachedTokens: 40,
       cacheMissTokens: 60,
       cacheHitRate: 0.4,
-      cacheSavingsUsd: 0.003,
-      cacheSavingsCny: 0.0216,
-      tokenEconomySavingsTokens: 4096,
-      tokenEconomySavingsUsd: 0.0018,
-      tokenEconomySavingsCny: 0.0126
+      tokenEconomySavingsTokens: 4096
     })
     expect(runtimeRequest).toHaveBeenCalledTimes(1)
   })

@@ -1,5 +1,17 @@
 export const WRITE_INFOGRAPHIC_MAX_TEXT_CHARS = 6_000
 
+/**
+ * Default prompt prefix for infographic generation. Users can override it via
+ * write.selectionAssist.infographicPrompt; the selected text is appended after
+ * the prefix either way.
+ */
+export const WRITE_INFOGRAPHIC_DEFAULT_PROMPT = [
+  'Create a clean, modern infographic that visually summarizes the following content.',
+  'Use a clear visual hierarchy: a short headline, grouped sections with icons or simple charts, and readable labels.',
+  'Keep the text in the infographic in the same language as the source content. Flat design, light background.',
+  'Source content:'
+].join(' ')
+
 export type WriteInfographicRequest = {
   /** Selected document text the infographic should summarize. */
   text: string

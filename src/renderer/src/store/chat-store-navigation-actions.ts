@@ -100,6 +100,7 @@ type StoreActionContext = {
 
 let bootPromise: Promise<void> | null = null
 let clawChannelActivityUnsubscribe: (() => void) | null = null
+let runtimeStatusUnsubscribe: (() => void) | null = null
 
 export function createNavigationActions(
   { set, get, sseAbortRef }: StoreActionContext
@@ -281,7 +282,7 @@ export function createNavigationActions(
     await get().selectThread(targetId)
   },
 
-  probeRuntime: async (mode = 'user') => {
+  probeRuntime: async (mode = 'user', options) => {
     const prev = get().runtimeConnection
     if (mode === 'user') set({ runtimeConnection: 'checking' })
     try {
@@ -291,6 +292,9 @@ export function createNavigationActions(
         )
       }
       const settings = await rendererRuntimeClient.getSettings({ forceRefresh: true })
+      if (options?.restart) {
+        await rendererRuntimeClient.restartRuntime()
+      }
       const p = getProvider()
       await p.connect()
       set({ runtimeConnection: 'ready', error: null, runtimeErrorDetail: null })
@@ -353,6 +357,25 @@ export function createNavigationActions(
         applyTheme(settings.theme)
         applyUiFontScale(settings.uiFontScale)
         await get().applyI18nFromSettings(settings.locale)
+        if (!runtimeStatusUnsubscribe && typeof window.kunGui.onRuntimeStatus === 'function') {
+          runtimeStatusUnsubscribe = window.kunGui.onRuntimeStatus((status) => {
+            set({ runtimeStatus: status })
+            if (status.state === 'failed' || status.state === 'stopped') {
+              // Terminal states reuse the main error banner, which carries
+              // the full diagnostics UI (details, log path, settings).
+              set({ error: status.message ?? i18n.t('common:runtimeStatusFailed') })
+              void get().probeRuntime('background')
+              return
+            }
+            if (status.state === 'running') {
+              void get().probeRuntime('background')
+              if (status.rolledBack) {
+                // On-disk settings were restored by the rollback; refresh the cache.
+                void rendererRuntimeClient.getSettings({ forceRefresh: true }).catch(() => null)
+              }
+            }
+          })
+        }
         if (!clawChannelActivityUnsubscribe && typeof window.kunGui.onClawChannelActivity === 'function') {
           clawChannelActivityUnsubscribe = window.kunGui.onClawChannelActivity(({ channelId, threadId }) => {
             void (async () => {

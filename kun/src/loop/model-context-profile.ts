@@ -1,7 +1,8 @@
 import type {
   ModelCapabilityMetadata,
   ModelInputModality,
-  ModelMessagePartSupport
+  ModelMessagePartSupport,
+  ModelReasoningCapabilityMetadata
 } from '../contracts/capabilities.js'
 
 export type ModelContextThresholds = {
@@ -24,6 +25,7 @@ export type ModelContextProfile = ModelContextThresholds & {
   outputModalities: readonly ModelInputModality[]
   supportsToolCalling: boolean
   messageParts: readonly ModelMessagePartSupport[]
+  reasoning?: ModelReasoningCapabilityMetadata
 }
 
 export type ModelContextProfileConfig = {
@@ -42,6 +44,7 @@ export type ModelContextProfileConfig = {
   outputModalities?: readonly ModelInputModality[]
   supportsToolCalling?: boolean
   messageParts?: readonly ModelMessagePartSupport[]
+  reasoning?: ModelReasoningCapabilityMetadata
 }
 
 export type ModelConfig = {
@@ -124,7 +127,8 @@ export function modelCapabilitiesForModel(
     outputModalities: [...(profile?.outputModalities ?? DEFAULT_MODEL_OUTPUT_MODALITIES)],
     supportsToolCalling: profile?.supportsToolCalling ?? true,
     contextWindowTokens: profile?.contextWindowTokens,
-    messageParts: [...(profile?.messageParts ?? DEFAULT_MODEL_MESSAGE_PARTS)]
+    messageParts: [...(profile?.messageParts ?? DEFAULT_MODEL_MESSAGE_PARTS)],
+    ...(profile?.reasoning ? { reasoning: copyReasoningCapability(profile.reasoning) } : {})
   }
 }
 
@@ -162,7 +166,12 @@ function deepseekV4Profile(
     inputModalities: DEFAULT_MODEL_INPUT_MODALITIES,
     outputModalities: DEFAULT_MODEL_OUTPUT_MODALITIES,
     supportsToolCalling: true,
-    messageParts: DEFAULT_MODEL_MESSAGE_PARTS
+    messageParts: DEFAULT_MODEL_MESSAGE_PARTS,
+    reasoning: {
+      supportedEfforts: ['off', 'high', 'max'],
+      defaultEffort: 'max',
+      requestProtocol: 'deepseek-chat-completions'
+    }
   }
 }
 
@@ -202,6 +211,7 @@ function mergeModelContextProfile(
     ...(current?.modelIds ?? []),
     ...(input.aliases ?? [])
   ])
+  const reasoning = input.reasoning ?? current?.reasoning
   return {
     canonicalModel,
     modelIds,
@@ -211,7 +221,20 @@ function mergeModelContextProfile(
     inputModalities: uniqueModelCapabilityValues(input.inputModalities ?? current?.inputModalities ?? DEFAULT_MODEL_INPUT_MODALITIES),
     outputModalities: uniqueModelCapabilityValues(input.outputModalities ?? current?.outputModalities ?? DEFAULT_MODEL_OUTPUT_MODALITIES),
     supportsToolCalling: input.supportsToolCalling ?? current?.supportsToolCalling ?? true,
-    messageParts: uniqueModelCapabilityValues(input.messageParts ?? current?.messageParts ?? DEFAULT_MODEL_MESSAGE_PARTS)
+    messageParts: uniqueModelCapabilityValues(input.messageParts ?? current?.messageParts ?? DEFAULT_MODEL_MESSAGE_PARTS),
+    ...(reasoning
+      ? { reasoning: copyReasoningCapability(reasoning) }
+      : {})
+  }
+}
+
+function copyReasoningCapability(
+  reasoning: ModelReasoningCapabilityMetadata
+): ModelReasoningCapabilityMetadata {
+  return {
+    supportedEfforts: [...reasoning.supportedEfforts],
+    defaultEffort: reasoning.defaultEffort,
+    requestProtocol: reasoning.requestProtocol
   }
 }
 

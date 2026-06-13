@@ -8,6 +8,8 @@ import { LocalToolHost } from '../src/adapters/tool/local-tool-host.js'
 import {
   buildImageGenToolProviders,
   mapImageSize,
+  minimaxImageDimensionFields,
+  openAiCompatImageUrl,
   type ImageGenClient
 } from '../src/adapters/tool/image-gen-tool-provider.js'
 import { FileAttachmentStore } from '../src/attachments/attachment-store.js'
@@ -124,6 +126,51 @@ describe('Image gen tool provider', () => {
     // Unknown ratios fall back to a square at the requested tier.
     expect(mapImageSize('7:5', '2K', undefined)).toBe('2048x2048')
     expect(mapImageSize(undefined, '2K', undefined)).toBe('2048x2048')
+  })
+
+  it('keeps explicit width/height for MiniMax image-01 only', () => {
+    expect(minimaxImageDimensionFields('image-01', '768x1024')).toEqual({ width: 768, height: 1024 })
+    expect(minimaxImageDimensionFields(' image-01 ', '1024x576')).toEqual({ width: 1024, height: 576 })
+  })
+
+  it('maps sizes to the nearest aspect_ratio for other MiniMax models', () => {
+    // image-01-live rejects width/height with status 2013.
+    expect(minimaxImageDimensionFields('image-01-live', '768x1024')).toEqual({ aspect_ratio: '3:4' })
+    expect(minimaxImageDimensionFields('image-01-live', '1024x1024')).toEqual({ aspect_ratio: '1:1' })
+    expect(minimaxImageDimensionFields('image-01-live', '1024x576')).toEqual({ aspect_ratio: '16:9' })
+    // mapImageSize rounds edges to multiples of 64, so snap to the nearest ratio.
+    expect(minimaxImageDimensionFields('image-01-live', '1024x704')).toEqual({ aspect_ratio: '3:2' })
+    expect(minimaxImageDimensionFields('image-01-live', '1152x2048')).toEqual({ aspect_ratio: '9:16' })
+    // 21:9 is image-01 only; ultra-wide degrades to the closest supported ratio.
+    expect(minimaxImageDimensionFields('image-01-live', '1024x448')).toEqual({ aspect_ratio: '16:9' })
+  })
+
+  it('omits MiniMax dimension fields for non-WxH sizes', () => {
+    expect(minimaxImageDimensionFields('image-01-live', undefined)).toEqual({})
+    expect(minimaxImageDimensionFields('image-01-live', 'auto')).toEqual({})
+    expect(minimaxImageDimensionFields('image-01', '0x0')).toEqual({})
+  })
+
+  it('inserts /v1 into unversioned OpenAI-compat image base urls like the chat client', () => {
+    // ZenMux-style API root without a version segment.
+    expect(openAiCompatImageUrl('https://zenmux.ai/api', 'generations'))
+      .toBe('https://zenmux.ai/api/v1/images/generations')
+    expect(openAiCompatImageUrl('https://zenmux.ai/api/', 'edits'))
+      .toBe('https://zenmux.ai/api/v1/images/edits')
+    expect(openAiCompatImageUrl('https://example.test', 'generations'))
+      .toBe('https://example.test/v1/images/generations')
+  })
+
+  it('keeps versioned and fully-qualified OpenAI-compat image base urls', () => {
+    expect(openAiCompatImageUrl('https://api.openai.com/v1', 'generations'))
+      .toBe('https://api.openai.com/v1/images/generations')
+    expect(openAiCompatImageUrl('https://ark.example.test/api/v3', 'edits'))
+      .toBe('https://ark.example.test/api/v3/images/edits')
+    expect(openAiCompatImageUrl('https://x.test/v1/images/generations', 'generations'))
+      .toBe('https://x.test/v1/images/generations')
+    // A fully-qualified generations URL still routes the edits call.
+    expect(openAiCompatImageUrl('https://x.test/v1/images/generations', 'edits'))
+      .toBe('https://x.test/v1/images/edits')
   })
 
   it('generates an image, saves it to the workspace, and scopes the attachment', async () => {

@@ -6,7 +6,7 @@ import type {
   ToolBlock,
   ToolEventPayload
 } from '../agent/types'
-import { DEFAULT_KUN_MODEL } from '@shared/app-settings'
+import { DEFAULT_KUN_MODEL, MODEL_REASONING_EFFORTS } from '@shared/app-settings'
 import type { ChatState, SideConversation, SidePanelState } from './chat-store-types'
 import { upsertUserBlock } from './chat-store-runtime-helpers'
 
@@ -46,9 +46,9 @@ function defaultSideModel(state: ChatState, parentThreadId: string): string {
 
 function sideReasoningEffortRequestValue(value: string): string | undefined {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'low') return 'off'
-  if (normalized === 'medium' || normalized === 'high' || normalized === 'max') return normalized
-  return undefined
+  return MODEL_REASONING_EFFORTS.includes(normalized as (typeof MODEL_REASONING_EFFORTS)[number])
+    ? normalized
+    : undefined
 }
 
 function patchSide(

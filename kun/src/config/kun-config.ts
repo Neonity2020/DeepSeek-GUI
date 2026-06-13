@@ -12,7 +12,8 @@ import {
   DEFAULT_KUN_CAPABILITIES_CONFIG,
   KunCapabilitiesConfig,
   ModelInputModality,
-  ModelMessagePartSupport
+  ModelMessagePartSupport,
+  ModelReasoningCapabilityMetadata
 } from '../contracts/capabilities.js'
 import {
   DEFAULT_MODEL_ENDPOINT_FORMAT,
@@ -59,7 +60,8 @@ export const ModelContextProfileConfigSchema = z
     inputModalities: z.array(ModelInputModality).optional(),
     outputModalities: z.array(ModelInputModality).optional(),
     supportsToolCalling: z.boolean().optional(),
-    messageParts: z.array(ModelMessagePartSupport).optional()
+    messageParts: z.array(ModelMessagePartSupport).optional(),
+    reasoning: ModelReasoningCapabilityMetadata.optional()
   })
   .strict()
   .superRefine((profile, ctx) => {

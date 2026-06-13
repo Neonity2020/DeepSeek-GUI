@@ -718,7 +718,7 @@ export function ThreadRenameDialog({
       <form
         onSubmit={onSubmit}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-full max-w-sm rounded-[24px] border border-ds-border bg-ds-card p-5 shadow-[0_24px_72px_rgba(15,23,42,0.22)]"
+        className="w-full max-w-sm rounded-[24px] border border-ds-border bg-ds-card p-5 shadow-[0_24px_72px_rgba(20,47,95,0.22)]"
       >
         <h2
           id="thread-rename-dialog-title"
@@ -789,7 +789,7 @@ function ThreadContextMenu({
     <div
       role="menu"
       aria-label={state.thread.title}
-      className="ds-thread-context-menu ds-no-drag fixed z-50 min-w-[168px] rounded-lg border border-ds-border bg-ds-card/98 p-1 text-[13px] text-ds-ink shadow-[0_16px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:bg-ds-card"
+      className="ds-thread-context-menu ds-no-drag fixed z-50 min-w-[168px] rounded-lg border border-ds-border bg-ds-card/98 p-1 text-[13px] text-ds-ink shadow-[0_16px_42px_rgba(20,47,95,0.16)] backdrop-blur-xl dark:bg-ds-card"
       style={{ left: state.x, top: state.y }}
       onPointerDown={(event) => event.stopPropagation()}
     >

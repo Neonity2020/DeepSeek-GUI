@@ -7,20 +7,25 @@ import {
   WriteRichEditor,
   type WriteRichEditorHandle
 } from '../../write/tiptap/WriteRichEditor'
-import type { WriteEditorSelectionState } from './WriteMarkdownEditor'
+import type { WriteEditorSelectionState, WriteMarkdownEditorHandle } from './WriteMarkdownEditor'
 import { WriteMarkdownEditor } from './WriteMarkdownEditor'
 import { WriteMarkdownPreview } from './WriteMarkdownPreview'
 import { WriteWorkspaceStart } from './WriteWorkspaceStart'
 import { WriteImagePreview } from './WriteImagePreview'
+import { WritePdfViewer } from './WritePdfViewer'
 
 type Props = {
   activeFilePath: string | null
   activeFileIsImage: boolean
+  activeFileIsPdf: boolean
   activeFileIsText: boolean
   fileLoading: boolean
   fileContent: string
   imageDataUrl: string
   imageMimeType: string
+  pdfDataBase64: string
+  pdfMimeType: string
+  pdfMtimeMs: number
   fileSize: number
   workspaceRoot: string
   workspaceName: string
@@ -35,6 +40,7 @@ type Props = {
   editorAppearance: 'source' | 'live'
   richModeActive: boolean
   richHandleRef: MutableRefObject<WriteRichEditorHandle | null>
+  markdownHandleRef?: MutableRefObject<WriteMarkdownEditorHandle | null>
   debouncedPreviewContent: string
   isMarkdown: boolean
   inlineCompletion: WriteInlineCompletionSettingsV1
@@ -57,11 +63,15 @@ type Props = {
 export function WriteWorkspaceDocumentPane({
   activeFilePath,
   activeFileIsImage,
+  activeFileIsPdf,
   activeFileIsText,
   fileLoading,
   fileContent,
   imageDataUrl,
   imageMimeType,
+  pdfDataBase64,
+  pdfMimeType: _pdfMimeType,
+  pdfMtimeMs,
   fileSize,
   workspaceRoot,
   workspaceName,
@@ -76,6 +86,7 @@ export function WriteWorkspaceDocumentPane({
   editorAppearance,
   richModeActive,
   richHandleRef,
+  markdownHandleRef,
   debouncedPreviewContent,
   isMarkdown,
   inlineCompletion,
@@ -125,6 +136,20 @@ export function WriteWorkspaceDocumentPane({
         mimeType={imageMimeType}
         size={fileSize}
         workspaceRoot={workspaceRoot}
+      />
+    )
+  }
+
+  if (activeFileIsPdf) {
+    return (
+      <WritePdfViewer
+        filePath={activeFilePath}
+        dataBase64={pdfDataBase64}
+        size={fileSize}
+        mtimeMs={pdfMtimeMs}
+        workspaceRoot={workspaceRoot}
+        viewerRef={editorPaneRef}
+        onSelectionChange={onSelectionChange}
       />
     )
   }
@@ -193,6 +218,7 @@ export function WriteWorkspaceDocumentPane({
                     onSaveShortcut={onSaveShortcut}
                     onImagePasteSaved={onImagePasteSaved}
                     onImagePasteError={onImagePasteError}
+                    handleRef={markdownHandleRef}
                   />
                 }
               />
@@ -218,6 +244,7 @@ export function WriteWorkspaceDocumentPane({
                 onSaveShortcut={onSaveShortcut}
                 onImagePasteSaved={onImagePasteSaved}
                 onImagePasteError={onImagePasteError}
+                handleRef={markdownHandleRef}
               />
             )}
           </div>

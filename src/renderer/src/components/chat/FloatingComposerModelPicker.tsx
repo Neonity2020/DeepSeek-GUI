@@ -7,11 +7,27 @@ import {
   type ReactElement
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Brain, Check, ChevronDown, ChevronRight, Gauge } from 'lucide-react'
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Gauge,
+  Image as ImageIcon,
+  Type as TypeIcon
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import {
+  MODEL_REASONING_EFFORTS,
+  isComposerChatModelId,
+  modelProfileSupportsTextChat,
+  modelSupportsImageInput,
+  type ModelReasoningEffort,
+  type ModelProviderModelProfileV1
+} from '@shared/app-settings'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
 
-export type ComposerReasoningEffort = 'low' | 'medium' | 'high' | 'max'
+export type ComposerReasoningEffort = ModelReasoningEffort
 
 type Props = {
   compact: boolean
@@ -27,11 +43,14 @@ type Props = {
 }
 
 const REASONING_OPTIONS: Array<{ id: ComposerReasoningEffort; labelKey: string }> = [
+  { id: 'auto', labelKey: 'composerReasoningAuto' },
+  { id: 'off', labelKey: 'composerReasoningOff' },
   { id: 'low', labelKey: 'composerReasoningLow' },
   { id: 'medium', labelKey: 'composerReasoningMedium' },
   { id: 'high', labelKey: 'composerReasoningHigh' },
   { id: 'max', labelKey: 'composerReasoningMax' }
 ]
+const LEGACY_REASONING_EFFORTS: ComposerReasoningEffort[] = ['off', 'low', 'medium', 'high', 'max']
 
 type FloatingMenuPlacement = {
   left: number
@@ -54,6 +73,7 @@ type ComposerModelMenuGroup = {
   providerId: string
   label: string
   modelIds: string[]
+  modelProfiles?: Record<string, ModelProviderModelProfileV1>
 }
 
 const FLOATING_MENU_MARGIN = 12
@@ -100,44 +120,28 @@ export function FloatingComposerModelPicker({
     return [...ordered]
   }, [composerModel, composerPickList])
   const providerMenuGroups = useMemo<ComposerModelMenuGroup[]>(() => {
-    const seen = new Set<string>()
-    const groups = composerModelGroups
-      .map((group) => {
-        const ids = group.modelIds
-          .map((id) => id.trim())
-          .filter((id) => {
-            if (!id || seen.has(id)) return false
-            seen.add(id)
-            return true
-          })
-        return {
-          ...group,
-          label: group.label.trim() || group.providerId,
-          modelIds: ids
-        }
-      })
-      .filter((group) => group.modelIds.length > 0)
-    const ungrouped = modelOptions.filter((id) => id !== 'auto' && !seen.has(id))
-    if (ungrouped.length > 0) {
-      groups.push({
-        providerId: UNGROUPED_MODEL_PROVIDER_ID,
-        label: t('composerModel'),
-        modelIds: ungrouped
-      })
-    }
-    return groups
+    return buildComposerModelMenuGroups({
+      composerModelGroups,
+      modelOptions,
+      ungroupedLabel: t('composerOtherModels')
+    })
   }, [composerModelGroups, modelOptions, t])
-  const reasoningEnabled = Boolean(onComposerReasoningEffortChange)
-  const currentReasoning = normalizeComposerReasoningEffort(composerReasoningEffort)
+  const currentModel = composerModel.trim()
+  const selectedProviderId = providerMenuGroups.find((group) =>
+    group.modelIds.some((id) => modelIdsMatch(id, currentModel))
+  )?.providerId ?? null
+  const currentModelProfile = modelProfileForSelection(providerMenuGroups, currentModel)
+  const reasoningOptions = reasoningOptionsForModel(currentModelProfile)
+  const reasoningEnabled = Boolean(onComposerReasoningEffortChange) && reasoningOptions.length > 0
+  const currentReasoning = normalizeComposerReasoningEffort(
+    composerReasoningEffort,
+    currentModelProfile
+  )
   const currentReasoningLabel = t(reasoningLabelKey(currentReasoning))
   const modelLabel = fullModelLabel(composerModel, t('autoLabel'))
   const controlsTitle = reasoningEnabled
     ? `${modelLabel} / ${currentReasoningLabel}`
     : modelLabel
-  const currentModel = composerModel.trim()
-  const selectedProviderId = providerMenuGroups.find((group) =>
-    group.modelIds.includes(currentModel)
-  )?.providerId ?? null
   const activeProviderGroup =
     providerMenuGroups.find((group) => group.providerId === activeProviderId) ?? null
   const comboboxWidthClass = stretch
@@ -145,6 +149,14 @@ export function FloatingComposerModelPicker({
     : compact
       ? 'w-[184px] max-w-[184px] shrink-0'
       : 'w-[248px] max-w-[260px] shrink-0'
+
+  useEffect(() => {
+    if (!reasoningEnabled) return
+    const rawReasoning = normalizeComposerReasoningEffortValue(composerReasoningEffort)
+    if (rawReasoning !== currentReasoning) {
+      onComposerReasoningEffortChange?.(currentReasoning)
+    }
+  }, [composerReasoningEffort, currentReasoning, onComposerReasoningEffortChange, reasoningEnabled])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -287,7 +299,7 @@ export function FloatingComposerModelPicker({
               {t('composerReasoning')}
             </MenuSectionTitle>
             <div className="flex flex-col gap-1">
-              {REASONING_OPTIONS.map((option) => (
+              {reasoningOptions.map((option) => (
                 <PickerRow
                   key={option.id}
                   selected={currentReasoning === option.id}
@@ -307,16 +319,10 @@ export function FloatingComposerModelPicker({
           {t('composerModel')}
         </MenuSectionTitle>
         <div className="pr-0.5">
-          <PickerRow
-            selected={!composerModel.trim() || composerModel.trim() === 'auto'}
-            title={t('autoLabel')}
-            onClick={() => {
-              onComposerModelChange('auto')
-              setMenuOpen(false)
-            }}
-          />
           {providerMenuGroups.map((group) => {
-            const selectedModel = group.modelIds.includes(currentModel) ? currentModel : ''
+            const selectedModel = group.modelIds.some((id) => modelIdsMatch(id, currentModel))
+              ? currentModel
+              : ''
             return (
               <ProviderRow
                 key={group.providerId}
@@ -341,7 +347,7 @@ export function FloatingComposerModelPicker({
             role="menu"
             aria-label={activeProviderGroup.label}
             style={submenuStyle}
-            className="fixed z-[1001] overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:bg-ds-card"
+            className="fixed z-[1001] overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[13px] text-ds-muted shadow-[0_18px_48px_rgba(20,47,95,0.16)] dark:bg-ds-card"
           >
             <div className="px-2.5 pb-1 pt-1 text-[11px] font-bold uppercase tracking-[0.08em] text-ds-faint">
               {t('composerModel')}
@@ -349,10 +355,22 @@ export function FloatingComposerModelPicker({
             {activeProviderGroup.modelIds.map((id) => (
               <PickerRow
                 key={`${activeProviderGroup.providerId}:${id}`}
-                selected={currentModel === id}
+                selected={modelIdsMatch(currentModel, id)}
                 title={id}
+                rightSlot={
+                  modelSupportsImageInput(modelProfileForModel(activeProviderGroup, id))
+                    ? <ModelCapabilityBadge kind="vision" label={t('composerModelVision')} />
+                    : <ModelCapabilityBadge kind="text" label={t('composerModelTextOnly')} />
+                }
                 onClick={() => {
+                  const nextReasoning = normalizeComposerReasoningEffort(
+                    composerReasoningEffort,
+                    modelProfileForModel(activeProviderGroup, id)
+                  )
                   onComposerModelChange(id)
+                  if (nextReasoning !== currentReasoning) {
+                    onComposerReasoningEffortChange?.(nextReasoning)
+                  }
                   setMenuOpen(false)
                 }}
               />
@@ -404,7 +422,7 @@ export function FloatingComposerModelPicker({
             <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.8} />
           </span>
         </button>
-        {renderMenu('fixed z-[1000] overflow-x-hidden overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[12.5px] shadow-[0_18px_50px_rgba(15,23,42,0.16)] dark:bg-ds-card')}
+        {renderMenu('fixed z-[1000] overflow-x-hidden overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[12.5px] shadow-[0_18px_50px_rgba(20,47,95,0.16)] dark:bg-ds-card')}
       </div>
     )
   }
@@ -442,28 +460,88 @@ export function FloatingComposerModelPicker({
       </button>
 
       {menuOpen && canChangeModel ? (
-        renderMenu('fixed z-[1000] overflow-x-hidden overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[13px] text-ds-muted shadow-[0_22px_64px_rgba(15,23,42,0.18)] dark:bg-ds-card')
+        renderMenu('fixed z-[1000] overflow-x-hidden overflow-y-auto rounded-xl border border-ds-border bg-white p-1.5 text-[13px] text-ds-muted shadow-[0_22px_64px_rgba(20,47,95,0.18)] dark:bg-ds-card')
       ) : null}
     </div>
   )
 }
 
-export function normalizeComposerReasoningEffort(value: string | undefined): ComposerReasoningEffort {
-  switch (value?.trim().toLowerCase()) {
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'max':
-      return value.trim().toLowerCase() as ComposerReasoningEffort
-    default:
-      return 'max'
+export function buildComposerModelMenuGroups({
+  composerModelGroups,
+  modelOptions,
+  ungroupedLabel
+}: {
+  composerModelGroups: readonly ModelProviderModelGroup[]
+  modelOptions: readonly string[]
+  ungroupedLabel: string
+}): ComposerModelMenuGroup[] {
+  const seen = new Set<string>()
+  const groups = composerModelGroups
+    .map((group) => {
+      const ids = group.modelIds
+        .map((id) => id.trim())
+        .filter((id) => {
+          const key = normalizeModelCapabilityKey(id)
+          if (!key || seen.has(key)) return false
+          if (!composerMenuSupportsModel(group, id)) return false
+          markModelSeen(seen, group, id)
+          return true
+        })
+      return {
+        ...group,
+        label: group.label.trim() || group.providerId,
+        modelIds: ids,
+        modelProfiles: group.modelProfiles
+      }
+    })
+    .filter((group) => group.modelIds.length > 0)
+
+  const ungrouped: string[] = []
+  for (const rawId of modelOptions) {
+    const id = rawId.trim()
+    const key = normalizeModelCapabilityKey(id)
+    if (!key || seen.has(key) || !isComposerChatModelId(id)) continue
+    seen.add(key)
+    ungrouped.push(id)
   }
+
+  if (ungrouped.length > 0) {
+    groups.push({
+      providerId: UNGROUPED_MODEL_PROVIDER_ID,
+      label: ungroupedLabel,
+      modelIds: ungrouped,
+      modelProfiles: {}
+    })
+  }
+  return groups
+}
+
+export function normalizeComposerReasoningEffort(
+  value: string | undefined,
+  profile?: Pick<ModelProviderModelProfileV1, 'reasoning'>
+): ComposerReasoningEffort {
+  const normalized = normalizeComposerReasoningEffortValue(value)
+  if (!profile?.reasoning) return normalized ?? 'max'
+  const supported = profile.reasoning.supportedEfforts
+  if (normalized && supported.includes(normalized)) return normalized
+  if (normalized === 'low' && supported.includes('off') && !supported.includes('low')) {
+    return 'off'
+  }
+  return profile.reasoning.defaultEffort
+}
+
+function normalizeComposerReasoningEffortValue(
+  value: string | undefined
+): ComposerReasoningEffort | undefined {
+  const normalized = value?.trim().toLowerCase()
+  return MODEL_REASONING_EFFORTS.includes(normalized as ComposerReasoningEffort)
+    ? normalized as ComposerReasoningEffort
+    : undefined
 }
 
 export function composerReasoningEffortRequestValue(
   value: ComposerReasoningEffort
 ): string | undefined {
-  if (value === 'low') return 'off'
   return value
 }
 
@@ -600,6 +678,74 @@ function estimatedModelSubmenuHeight(modelCount: number): number {
   return 34 + Math.max(1, modelCount) * 36 + 12
 }
 
+function normalizeModelCapabilityKey(modelId: string): string {
+  return modelId.trim().toLowerCase()
+}
+
+function modelIdsMatch(a: string, b: string): boolean {
+  const left = normalizeModelCapabilityKey(a)
+  return Boolean(left) && left === normalizeModelCapabilityKey(b)
+}
+
+function markModelSeen(
+  seen: Set<string>,
+  group: Pick<ComposerModelMenuGroup, 'modelProfiles'>,
+  modelId: string
+): void {
+  for (const id of [modelId, ...(modelProfileForModel(group, modelId)?.aliases ?? [])]) {
+    const key = normalizeModelCapabilityKey(id)
+    if (key) seen.add(key)
+  }
+}
+
+function modelProfileForModel(
+  group: Pick<ComposerModelMenuGroup, 'modelProfiles'> | null | undefined,
+  modelId: string
+): ModelProviderModelProfileV1 | undefined {
+  if (!group) return undefined
+  const key = normalizeModelCapabilityKey(modelId)
+  if (!key) return undefined
+  const profiles = group.modelProfiles ?? {}
+  const direct = profiles[key] ?? profiles[modelId.trim()]
+  if (direct) return direct
+  return Object.values(profiles).find((profile) =>
+    profile.aliases?.some((alias) => normalizeModelCapabilityKey(alias) === key)
+  )
+}
+
+function modelProfileForSelection(
+  groups: readonly ComposerModelMenuGroup[],
+  modelId: string
+): ModelProviderModelProfileV1 | undefined {
+  for (const group of groups) {
+    if (!group.modelIds.includes(modelId)) continue
+    const profile = modelProfileForModel(group, modelId)
+    if (profile) return profile
+  }
+  for (const group of groups) {
+    const profile = modelProfileForModel(group, modelId)
+    if (profile) return profile
+  }
+  return undefined
+}
+
+function reasoningOptionsForModel(
+  profile: Pick<ModelProviderModelProfileV1, 'reasoning'> | undefined
+): Array<{ id: ComposerReasoningEffort; labelKey: string }> {
+  const supported = profile?.reasoning?.supportedEfforts ?? LEGACY_REASONING_EFFORTS
+  return supported
+    .map((effort) => REASONING_OPTIONS.find((option) => option.id === effort))
+    .filter((option): option is { id: ComposerReasoningEffort; labelKey: string } => Boolean(option))
+}
+
+export function composerMenuSupportsModel(
+  group: Pick<ComposerModelMenuGroup, 'modelProfiles'>,
+  modelId: string
+): boolean {
+  if (!isComposerChatModelId(modelId)) return false
+  return modelProfileSupportsTextChat(modelProfileForModel(group, modelId))
+}
+
 function MenuSectionTitle({
   children,
   icon
@@ -622,10 +768,12 @@ function MenuSeparator(): ReactElement {
 function PickerRow({
   selected,
   title,
+  rightSlot,
   onClick
 }: {
   selected: boolean
   title: string
+  rightSlot?: ReactElement | null
   onClick: () => void
 }): ReactElement {
   return (
@@ -644,8 +792,31 @@ function PickerRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-semibold">{title}</span>
       </span>
+      {rightSlot}
       {selected ? <Check className="h-4 w-4 shrink-0 text-accent" strokeWidth={2} /> : null}
     </button>
+  )
+}
+
+function ModelCapabilityBadge({
+  kind,
+  label
+}: {
+  kind: 'vision' | 'text'
+  label: string
+}): ReactElement {
+  const tone = kind === 'vision'
+    ? 'border-emerald-300/70 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/30 dark:text-emerald-300'
+    : 'border-ds-border bg-ds-hover text-ds-muted'
+  const Icon = kind === 'vision' ? ImageIcon : TypeIcon
+  return (
+    <span
+      className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] font-semibold leading-none ${tone}`}
+      title={label}
+    >
+      <Icon className="h-3 w-3" strokeWidth={1.9} />
+      <span>{label}</span>
+    </span>
   )
 }
 

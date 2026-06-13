@@ -10,7 +10,13 @@ import { MessageTimelineEmptyHero, ThreadForkBanner, ThreadForkPoint } from './m
 import { GeneratedFilesPanel, MessageBubble } from './message-timeline-bubbles'
 import { ReviewPlanCard, ReviewSummaryCard, TurnChangeSummary, WorkMetaRow } from './message-timeline-cards'
 import { ProcessSectionRow, groupProcessSections } from './message-timeline-process'
-import { AnimatedWorkLogo } from './AnimatedWorkLogo'
+import {
+  AnimatedWorkLogo,
+  IKUN_WORK_LOGO_VARIANT_LABEL_KEYS,
+  WORK_LOGO_SWIM_MODE_LABEL_KEYS,
+  useIkunWorkLogoVariant,
+  useWorkLogoSwimMode
+} from './AnimatedWorkLogo'
 import {
   groupTurns,
   sameTurnContent,
@@ -416,13 +422,24 @@ function MessageTurn({
 
 function LiveTurnProgressRow(): ReactElement {
   const { t } = useTranslation('common')
+  const swimMode = useWorkLogoSwimMode(true)
+  const ikunVariant = useIkunWorkLogoVariant(true)
+  // iKun 模式是全局 html 属性;进行行每个回合重新挂载,挂载时读取即可
+  const [ikunModeOn] = useState(
+    () =>
+      typeof document !== 'undefined' &&
+      document.documentElement.getAttribute('data-ikun-mode') === 'on'
+  )
+  const labelKey = ikunModeOn
+    ? IKUN_WORK_LOGO_VARIANT_LABEL_KEYS[ikunVariant]
+    : WORK_LOGO_SWIM_MODE_LABEL_KEYS[swimMode]
 
   return (
     <div className="flex w-fit max-w-full items-center gap-2 py-0.5 text-[14px] font-medium text-ds-muted">
       <span className="ds-work-logo-slot ds-work-logo-slot-sm mr-0.5">
-        <AnimatedWorkLogo active phase="trail" size="sm" />
+        <AnimatedWorkLogo active ikunVariant={ikunVariant} mode={swimMode} phase="trail" size="sm" />
       </span>
-      <span className="ds-shiny-text">{t('working')}</span>
+      <span className="ds-shiny-text">{t(labelKey)}</span>
     </div>
   )
 }

@@ -11,17 +11,17 @@ import { useChatStore } from '../../store/chat-store'
 import { StreamdownCode } from './StreamdownCode'
 
 /**
- * Tuned for faster, cleaner single-line streaming:
- * - keep per-character reveal for short CJK/plain text
- * - use a quick fade instead of blur
- * - reduce stagger so chunks don't "crawl" across the screen
+ * No `stagger`: staggering queues each char N ms apart, so a bursty SSE
+ * chunk (tens of chars) builds a queue longer than the chunk interval and
+ * the next chunk interrupts it — streaming looks choppy. Instead every
+ * char in a chunk starts the same 500ms blur-in at once; consecutive
+ * chunks overlap into one continuous reveal regardless of chunk size.
  */
-const STREAMING_ANIMATED: AnimateOptions = {
+export const STREAMING_ANIMATED: AnimateOptions = {
   sep: 'char',
-  duration: 120,
-  stagger: 8,
-  easing: 'ease-out',
-  animation: 'fadeIn'
+  duration: 500,
+  easing: 'ease',
+  animation: 'blurIn'
 }
 
 const rehypePlugins = [
@@ -110,38 +110,19 @@ function StreamdownLink({
   )
 }
 
-const BLOCK_MARKDOWN_REGEX =
-  /(^|\n)\s{0,3}(#{1,6}\s|[-+*]\s|\d+\.\s|>\s|```|~~~)|(^|\n)\|.+\|/m
-
-const INLINE_STRUCTURED_MARKDOWN_REGEX =
-  /`[^`\n]+`|!\[[^\]]*]\([^)\n]+\)|\[[^\]]+]\([^)\n]+\)/
-const MULTILINE_TEXT_REGEX = /\r?\n/
-const MAX_ANIMATED_STREAMING_CHARS = 600
-
-export function shouldAnimateStreamingText(text: string): boolean {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  if (trimmed.length > MAX_ANIMATED_STREAMING_CHARS) return false
-  if (MULTILINE_TEXT_REGEX.test(trimmed)) return false
-  return !(
-    BLOCK_MARKDOWN_REGEX.test(trimmed) ||
-    INLINE_STRUCTURED_MARKDOWN_REGEX.test(trimmed)
-  )
-}
-
 type Props = {
   /** Markdown source */
   text: string
   /**
    * When true (live SSE chunking), uses Streamdown `streaming` mode with a
-   * fast char-level fade so the output feels responsive without the heavy blur.
+   * char-level blur-in on newly appended content.
    */
   streaming: boolean
   className?: string
 }
 
 export function StreamdownAssistant({ text, streaming, className }: Props): ReactElement {
-  const animated = streaming && shouldAnimateStreamingText(text) ? STREAMING_ANIMATED : false
+  const animated = streaming ? STREAMING_ANIMATED : false
   const isAnimating = animated !== false
 
   return (

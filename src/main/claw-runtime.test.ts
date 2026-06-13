@@ -11,7 +11,8 @@ import {
   defaultWriteSettings,
   type AppSettingsV1,
   type ClawImChannelV1,
-  type ClawImConversationV1
+  type ClawImConversationV1,
+  type ModelProviderProfileV1
 } from '../shared/app-settings'
 import { createClawRuntime } from './claw-runtime'
 
@@ -42,6 +43,7 @@ function buildSettings(): AppSettingsV1 {
           enabled: true,
           prompt: 'Summarize changes',
           workspaceRoot: '/tmp/workspace',
+          clawChannelId: '',
           model: 'auto',
           reasoningEffort: 'medium',
           mode: 'agent',
@@ -100,6 +102,19 @@ function buildChannel(overrides: Partial<ClawImChannelV1> = {}): ClawImChannelV1
     welcomeSentAt: '2026-06-02T00:00:00.000Z',
     createdAt: '2026-06-02T00:00:00.000Z',
     updatedAt: '2026-06-02T00:00:00.000Z',
+    ...overrides
+  }
+}
+
+function buildModelProvider(overrides: Partial<ModelProviderProfileV1> = {}): ModelProviderProfileV1 {
+  return {
+    id: 'minimax',
+    name: 'MiniMax',
+    apiKey: 'sk-minimax',
+    baseUrl: 'https://api.minimaxi.com/anthropic',
+    endpointFormat: 'messages',
+    models: ['MiniMax-M3', 'MiniMax-M2.7'],
+    modelProfiles: {},
     ...overrides
   }
 }
@@ -289,6 +304,8 @@ describe('ClawRuntime', () => {
     })
     expect(createScheduledTaskFromText).toHaveBeenCalledWith('Remind me tomorrow to ship the review.', {
       workspaceRoot: settings.workspaceRoot,
+      clawChannelId: null,
+      providerId: null,
       modelHint: settings.claw.im.model,
       mode: settings.claw.im.mode
     })
@@ -730,6 +747,232 @@ describe('ClawRuntime', () => {
     expect(send).toHaveBeenCalledWith(
       'oc_chat_a',
       { markdown: 'Claw IM model switched to `deepseek-v4-flash`.' },
+      { replyTo: 'om_inbound', replyInThread: false }
+    )
+  })
+
+  it('lists and switches IM model providers locally for the current channel', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.provider.providers = [
+      ...settings.provider.providers,
+      buildModelProvider()
+    ]
+    settings.claw.channels = [buildChannel()]
+    const { current, store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn()
+    const send = vi.fn(async () => ({ messageId: 'om_sent' }))
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined
+    })
+    ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
+      .feishuChannels
+      .set('channel_1', { send })
+    const handleFeishuMessage = (content: string, messageId: string): Promise<void> =>
+      (runtime as unknown as {
+        handleFeishuMessage: (channelId: string, message: {
+          chatId: string
+          messageId: string
+          senderId: string
+          senderName?: string
+          chatType: 'p2p' | 'group'
+          mentionedBot: boolean
+          mentionAll: boolean
+          content: string
+          rawContentType: string
+          mentions: unknown[]
+        }) => Promise<void>
+      }).handleFeishuMessage('channel_1', {
+        chatId: 'oc_chat_a',
+        messageId,
+        senderId: 'ou_1',
+        senderName: 'Alice',
+        chatType: 'p2p',
+        mentionedBot: false,
+        mentionAll: false,
+        content,
+        rawContentType: 'text',
+        mentions: []
+      })
+
+    await handleFeishuMessage('/provider', 'om_provider_list')
+    expect(runtimeRequest).not.toHaveBeenCalled()
+    expect(send).toHaveBeenLastCalledWith(
+      'oc_chat_a',
+      { markdown: expect.stringContaining('Loaded providers:') },
+      { replyTo: 'om_provider_list', replyInThread: false }
+    )
+    const providerListCall = send.mock.calls[send.mock.calls.length - 1] as unknown as [
+      string,
+      { markdown?: string },
+      Record<string, unknown>
+    ]
+    expect(providerListCall[1]).toMatchObject({ markdown: expect.stringContaining('`minimax`') })
+
+    await handleFeishuMessage('/provider minimax', 'om_provider_switch')
+    expect(current().claw.channels[0]).toMatchObject({
+      providerId: 'minimax',
+      model: 'MiniMax-M2.7'
+    })
+    expect(send).toHaveBeenLastCalledWith(
+      'oc_chat_a',
+      { markdown: 'IM provider switched to `minimax`; model is `MiniMax-M2.7`. Send `/model` to list models for this provider.' },
+      { replyTo: 'om_provider_switch', replyInThread: false }
+    )
+  })
+
+  it('lists and switches models only within the current IM provider', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.provider.providers = [
+      ...settings.provider.providers,
+      buildModelProvider()
+    ]
+    settings.claw.channels = [buildChannel({ providerId: 'minimax', model: 'MiniMax-M2.7' })]
+    const { current, store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn()
+    const send = vi.fn(async () => ({ messageId: 'om_sent' }))
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined
+    })
+    ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
+      .feishuChannels
+      .set('channel_1', { send })
+    const handleFeishuMessage = (content: string, messageId: string): Promise<void> =>
+      (runtime as unknown as {
+        handleFeishuMessage: (channelId: string, message: {
+          chatId: string
+          messageId: string
+          senderId: string
+          senderName?: string
+          chatType: 'p2p' | 'group'
+          mentionedBot: boolean
+          mentionAll: boolean
+          content: string
+          rawContentType: string
+          mentions: unknown[]
+        }) => Promise<void>
+      }).handleFeishuMessage('channel_1', {
+        chatId: 'oc_chat_a',
+        messageId,
+        senderId: 'ou_1',
+        senderName: 'Alice',
+        chatType: 'p2p',
+        mentionedBot: false,
+        mentionAll: false,
+        content,
+        rawContentType: 'text',
+        mentions: []
+      })
+
+    await handleFeishuMessage('/model', 'om_model_list')
+    expect(send).toHaveBeenLastCalledWith(
+      'oc_chat_a',
+      { markdown: expect.stringContaining('Available models:') },
+      { replyTo: 'om_model_list', replyInThread: false }
+    )
+    const modelListCall = send.mock.calls[send.mock.calls.length - 1] as unknown as [
+      string,
+      { markdown?: string },
+      Record<string, unknown>
+    ]
+    expect(modelListCall[1]).toMatchObject({ markdown: expect.stringContaining('`MiniMax-M3`') })
+    expect(modelListCall[1]).toMatchObject({ markdown: expect.not.stringContaining('deepseek-v4-flash') })
+
+    await handleFeishuMessage('/model MiniMax-M3', 'om_model_switch')
+    expect(current().claw.channels[0].model).toBe('MiniMax-M3')
+    expect(send).toHaveBeenLastCalledWith(
+      'oc_chat_a',
+      { markdown: 'Claw IM model switched to `MiniMax-M3`.' },
+      { replyTo: 'om_model_switch', replyInThread: false }
+    )
+  })
+
+  it('uses the current IM provider when starting an agent turn', async () => {
+    const settings = buildSettings()
+    settings.claw.im.enabled = true
+    settings.claw.im.responseTimeoutMs = 2_000
+    settings.provider.providers = [
+      ...settings.provider.providers,
+      buildModelProvider()
+    ]
+    settings.claw.channels = [buildChannel({
+      providerId: 'minimax',
+      model: 'MiniMax-M3',
+      threadId: 'thr_minimax',
+      conversations: [buildConversation({ localThreadId: 'thr_minimax' })]
+    })]
+    const { store } = mutableSettingsStore(settings)
+    const runtimeRequest = vi.fn(async (requestSettings: AppSettingsV1, path, init) => {
+      expect(requestSettings.agents.kun.providerId).toBe('minimax')
+      expect(requestSettings.agents.kun.model).toBe('MiniMax-M3')
+      if (path === '/v1/threads/thr_minimax/turns' && init?.method === 'POST') {
+        const body = JSON.parse(init?.body ?? '{}') as { model?: string }
+        expect(body.model).toBe('MiniMax-M3')
+        return { ok: true, status: 202, body: JSON.stringify({ threadId: 'thr_minimax', turnId: 'turn_minimax' }) }
+      }
+      if (path === '/v1/threads/thr_minimax' && init?.method === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          body: JSON.stringify({
+            id: 'thr_minimax',
+            status: 'idle',
+            turns: [
+              {
+                id: 'turn_minimax',
+                status: 'completed',
+                items: [{ kind: 'assistant_text', text: 'hello from minimax' }]
+              }
+            ]
+          })
+        }
+      }
+      throw new Error(`unexpected path ${path}`)
+    })
+    const send = vi.fn(async () => ({ messageId: 'om_sent' }))
+    const runtime = createClawRuntime({
+      store: store as never,
+      runtimeRequest: runtimeRequest as never,
+      logError: () => undefined
+    })
+    ;(runtime as unknown as { feishuChannels: Map<string, { send: typeof send }> })
+      .feishuChannels
+      .set('channel_1', { send })
+
+    await (runtime as unknown as {
+      handleFeishuMessage: (channelId: string, message: {
+        chatId: string
+        messageId: string
+        senderId: string
+        senderName?: string
+        chatType: 'p2p' | 'group'
+        mentionedBot: boolean
+        mentionAll: boolean
+        content: string
+        rawContentType: string
+        mentions: unknown[]
+      }) => Promise<void>
+    }).handleFeishuMessage('channel_1', {
+      chatId: 'oc_chat_a',
+      messageId: 'om_inbound',
+      senderId: 'ou_1',
+      senderName: 'Alice',
+      chatType: 'p2p',
+      mentionedBot: false,
+      mentionAll: false,
+      content: 'hello',
+      rawContentType: 'text',
+      mentions: []
+    })
+
+    expect(send).toHaveBeenCalledWith(
+      'oc_chat_a',
+      { markdown: 'hello from minimax' },
       { replyTo: 'om_inbound', replyInThread: false }
     )
   })
@@ -1800,7 +2043,7 @@ describe('ClawRuntime', () => {
     }
   })
 
-  it('returns gated generated files in the WeChat webhook reply for image requests', async () => {
+  it('returns generated files in the WeChat webhook reply for image requests', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-image-'))
     const imageDir = join(workspaceRoot, '.deepseekgui-images')
     const imagePath = join(imageDir, 'img-20260611000200-beef.png')
@@ -1925,6 +2168,535 @@ describe('ClawRuntime', () => {
           path: realImagePath,
           relativePath: '.deepseekgui-images/img-20260611000200-beef.png',
           fileName: 'img-20260611000200-beef.png'
+        }
+      ])
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('returns current-turn generated music files in the WeChat webhook reply for follow-up prompts', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-music-'))
+    const mediaDir = join(workspaceRoot, '.deepseekgui-media')
+    const musicPath = join(mediaDir, 'music-20260612054704-78a2.mp3')
+    await mkdir(mediaDir, { recursive: true })
+    await writeFile(musicPath, Buffer.from([0x49, 0x44, 0x33, 0x03]))
+    const realMusicPath = await realpath(musicPath)
+    try {
+      const settings = buildSettings()
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 2_000
+      settings.agents.kun.musicGeneration = {
+        enabled: true,
+        providerId: '',
+        protocol: 'minimax-music',
+        baseUrl: 'https://api.minimax.io',
+        apiKey: 'sk-music',
+        model: 'music-2.6',
+        format: 'mp3',
+        timeoutMs: 300000
+      }
+      settings.claw.channels = [
+        buildChannel({
+          provider: 'weixin' as const,
+          id: 'channel_weixin',
+          label: 'WeChat',
+          threadId: 'thr_wx_music',
+          conversations: [
+            buildConversation({
+              chatId: 'wx_user_1',
+              senderId: 'wx_user_1',
+              localThreadId: 'thr_wx_music',
+              workspaceRoot
+            })
+          ]
+        })
+      ]
+      const { store } = mutableSettingsStore(settings)
+      const runtimeRequest = vi.fn(async (_settings, path, init) => {
+        if (path === '/v1/threads/thr_wx_music/turns' && init?.method === 'POST') {
+          const body = JSON.parse(init?.body ?? '{}') as { prompt?: string }
+          expect(body.prompt).toContain('欢快的人声')
+          expect(body.prompt).toContain('generate_music')
+          return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_wx_music' }) }
+        }
+        if (path === '/v1/threads/thr_wx_music' && init?.method === 'GET') {
+          return {
+            ok: true,
+            status: 200,
+            body: JSON.stringify({
+              id: 'thr_wx_music',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_wx_music',
+                  status: 'completed',
+                  items: [
+                    {
+                      kind: 'tool_result',
+                      toolName: 'generate_music',
+                      toolKind: 'tool_call',
+                      output: {
+                        files: [{
+                          absolutePath: musicPath,
+                          relativePath: '.deepseekgui-media/music-20260612054704-78a2.mp3',
+                          mimeType: 'audio/mpeg'
+                        }]
+                      },
+                      isError: false
+                    },
+                    { kind: 'assistant_text', text: '欢快的人声歌曲已生成～' }
+                  ]
+                }
+              ]
+            })
+          }
+        }
+        throw new Error(`unexpected path ${path}`)
+      })
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: runtimeRequest as never,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+      const body = JSON.stringify({
+        text: '欢快的人声',
+        provider: 'weixin',
+        channelId: 'channel_weixin',
+        chatId: 'wx_user_1',
+        messageId: 'wx_msg_music',
+        senderId: 'wx_user_1',
+        senderName: 'Alice'
+      })
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(body)
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((payload: string) => {
+          responseBody = payload
+        })
+      }
+
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+
+      expect(status).toBe(200)
+      const parsed = JSON.parse(responseBody)
+      expect(parsed).toMatchObject({ ok: true, reply: '欢快的人声歌曲已生成～' })
+      expect(parsed.files).toEqual([
+        {
+          path: realMusicPath,
+          relativePath: '.deepseekgui-media/music-20260612054704-78a2.mp3',
+          fileName: 'music-20260612054704-78a2.mp3'
+        }
+      ])
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('does not return files from previous turns when the current IM turn produces none', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-stale-files-'))
+    const imageDir = join(workspaceRoot, '.deepseekgui-images')
+    const imagePath = join(imageDir, 'img-20260611000300-cafe.png')
+    await mkdir(imageDir, { recursive: true })
+    await writeFile(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    try {
+      const settings = buildSettings()
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 2_000
+      settings.agents.kun.imageGeneration = {
+        enabled: true,
+        providerId: '',
+        protocol: 'openai-images',
+        baseUrl: 'https://images.example.test/v1',
+        apiKey: 'sk-image',
+        model: 'test-image-model',
+        defaultSize: '1024x1024',
+        timeoutMs: 180000
+      }
+      settings.claw.channels = [
+        buildChannel({
+          provider: 'weixin' as const,
+          id: 'channel_weixin',
+          label: 'WeChat',
+          threadId: 'thr_wx_stale',
+          conversations: [
+            buildConversation({
+              chatId: 'wx_user_1',
+              senderId: 'wx_user_1',
+              localThreadId: 'thr_wx_stale',
+              workspaceRoot
+            })
+          ]
+        })
+      ]
+      const { store } = mutableSettingsStore(settings)
+      const runtimeRequest = vi.fn(async (_settings, path, init) => {
+        if (path === '/v1/threads/thr_wx_stale/turns' && init?.method === 'POST') {
+          const body = JSON.parse(init?.body ?? '{}') as { prompt?: string }
+          expect(body.prompt).toContain('generate_image')
+          return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_current' }) }
+        }
+        if (path === '/v1/threads/thr_wx_stale' && init?.method === 'GET') {
+          return {
+            ok: true,
+            status: 200,
+            body: JSON.stringify({
+              id: 'thr_wx_stale',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_previous',
+                  status: 'completed',
+                  items: [
+                    {
+                      kind: 'tool_result',
+                      toolName: 'generate_image',
+                      toolKind: 'tool_call',
+                      output: {
+                        files: [{
+                          absolutePath: imagePath,
+                          relativePath: '.deepseekgui-images/img-20260611000300-cafe.png',
+                          mimeType: 'image/png'
+                        }]
+                      },
+                      isError: false
+                    },
+                    { kind: 'assistant_text', text: '上一张图片。' }
+                  ]
+                },
+                {
+                  id: 'turn_current',
+                  status: 'completed',
+                  items: [
+                    { kind: 'assistant_text', text: '这次没有生成新文件。' }
+                  ]
+                }
+              ]
+            })
+          }
+        }
+        throw new Error(`unexpected path ${path}`)
+      })
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: runtimeRequest as never,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+      const body = JSON.stringify({
+        text: '帮我生成一张图片',
+        provider: 'weixin',
+        channelId: 'channel_weixin',
+        chatId: 'wx_user_1',
+        messageId: 'wx_msg_stale',
+        senderId: 'wx_user_1',
+        senderName: 'Alice'
+      })
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(body)
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((payload: string) => {
+          responseBody = payload
+        })
+      }
+
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+
+      expect(status).toBe(200)
+      const parsed = JSON.parse(responseBody)
+      expect(parsed).toMatchObject({ ok: true, reply: '这次没有生成新文件。' })
+      expect(parsed.files).toEqual([])
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('returns generated speech files in the WeChat webhook reply for voice requests', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-speech-'))
+    const speechDir = join(workspaceRoot, '.deepseekgui-media')
+    const speechPath = join(speechDir, 'speech-20260612000100-feed.mp3')
+    await mkdir(speechDir, { recursive: true })
+    await writeFile(speechPath, Buffer.from([0x49, 0x44, 0x33, 0x03]))
+    const realSpeechPath = await realpath(speechPath)
+    try {
+      const settings = buildSettings()
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 2_000
+      settings.agents.kun.textToSpeech = {
+        enabled: true,
+        providerId: '',
+        protocol: 'minimax-t2a',
+        baseUrl: 'https://api.minimax.io',
+        apiKey: 'sk-speech',
+        model: 'speech-2.8-hd',
+        voice: '',
+        format: 'mp3',
+        timeoutMs: 120000
+      }
+      settings.claw.channels = [
+        buildChannel({
+          provider: 'weixin' as const,
+          id: 'channel_weixin',
+          label: 'WeChat',
+          threadId: 'thr_wx_speech',
+          conversations: [
+            buildConversation({
+              chatId: 'wx_user_1',
+              senderId: 'wx_user_1',
+              localThreadId: 'thr_wx_speech',
+              workspaceRoot
+            })
+          ]
+        })
+      ]
+      const { store } = mutableSettingsStore(settings)
+      const runtimeRequest = vi.fn(async (_settings, path, init) => {
+        if (path === '/v1/threads/thr_wx_speech/turns' && init?.method === 'POST') {
+          const body = JSON.parse(init?.body ?? '{}') as { prompt?: string }
+          expect(body.prompt).toContain('generate_speech')
+          return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_wx_speech' }) }
+        }
+        if (path === '/v1/threads/thr_wx_speech' && init?.method === 'GET') {
+          return {
+            ok: true,
+            status: 200,
+            body: JSON.stringify({
+              id: 'thr_wx_speech',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_wx_speech',
+                  status: 'completed',
+                  items: [
+                    {
+                      kind: 'tool_result',
+                      toolName: 'generate_speech',
+                      toolKind: 'tool_call',
+                      output: {
+                        files: [{
+                          absolutePath: speechPath,
+                          relativePath: '.deepseekgui-media/speech-20260612000100-feed.mp3',
+                          mimeType: 'audio/mpeg'
+                        }]
+                      },
+                      isError: false
+                    },
+                    { kind: 'assistant_text', text: '语音已生成。' }
+                  ]
+                }
+              ]
+            })
+          }
+        }
+        throw new Error(`unexpected path ${path}`)
+      })
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: runtimeRequest as never,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+      const body = JSON.stringify({
+        text: '帮我生成一段语音旁白',
+        provider: 'weixin',
+        channelId: 'channel_weixin',
+        chatId: 'wx_user_1',
+        messageId: 'wx_msg_speech',
+        senderId: 'wx_user_1',
+        senderName: 'Alice'
+      })
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(body)
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((payload: string) => {
+          responseBody = payload
+        })
+      }
+
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+
+      expect(status).toBe(200)
+      const parsed = JSON.parse(responseBody)
+      expect(parsed).toMatchObject({ ok: true, reply: '语音已生成。' })
+      expect(parsed.files).toEqual([
+        {
+          path: realSpeechPath,
+          relativePath: '.deepseekgui-media/speech-20260612000100-feed.mp3',
+          fileName: 'speech-20260612000100-feed.mp3'
+        }
+      ])
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('returns current-turn generated video files in the WeChat webhook reply for follow-up prompts', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'deepseek-gui-weixin-video-'))
+    const mediaDir = join(workspaceRoot, '.deepseekgui-media')
+    const videoPath = join(mediaDir, 'video-20260612061000-c0de.mp4')
+    await mkdir(mediaDir, { recursive: true })
+    await writeFile(videoPath, Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]))
+    const realVideoPath = await realpath(videoPath)
+    try {
+      const settings = buildSettings()
+      settings.claw.im.enabled = true
+      settings.claw.im.responseTimeoutMs = 2_000
+      settings.agents.kun.videoGeneration = {
+        enabled: true,
+        providerId: '',
+        protocol: 'minimax-video',
+        baseUrl: 'https://api.minimax.io',
+        apiKey: 'sk-video',
+        model: 'MiniMax-Hailuo-2.3',
+        defaultDuration: 6,
+        defaultResolution: '1080P',
+        timeoutMs: 900000,
+        pollIntervalMs: 10000
+      }
+      settings.claw.channels = [
+        buildChannel({
+          provider: 'weixin' as const,
+          id: 'channel_weixin',
+          label: 'WeChat',
+          threadId: 'thr_wx_video',
+          conversations: [
+            buildConversation({
+              chatId: 'wx_user_1',
+              senderId: 'wx_user_1',
+              localThreadId: 'thr_wx_video',
+              workspaceRoot
+            })
+          ]
+        })
+      ]
+      const { store } = mutableSettingsStore(settings)
+      const runtimeRequest = vi.fn(async (_settings, path, init) => {
+        if (path === '/v1/threads/thr_wx_video/turns' && init?.method === 'POST') {
+          const body = JSON.parse(init?.body ?? '{}') as { prompt?: string }
+          expect(body.prompt).toContain('16:9')
+          expect(body.prompt).toContain('generate_video')
+          return { ok: true, status: 202, body: JSON.stringify({ turnId: 'turn_wx_video' }) }
+        }
+        if (path === '/v1/threads/thr_wx_video' && init?.method === 'GET') {
+          return {
+            ok: true,
+            status: 200,
+            body: JSON.stringify({
+              id: 'thr_wx_video',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn_wx_video',
+                  status: 'completed',
+                  items: [
+                    {
+                      kind: 'tool_result',
+                      toolName: 'generate_video',
+                      toolKind: 'tool_call',
+                      output: {
+                        files: [{
+                          absolutePath: videoPath,
+                          relativePath: '.deepseekgui-media/video-20260612061000-c0de.mp4',
+                          mimeType: 'video/mp4'
+                        }]
+                      },
+                      isError: false
+                    },
+                    { kind: 'assistant_text', text: '视频已生成。' }
+                  ]
+                }
+              ]
+            })
+          }
+        }
+        throw new Error(`unexpected path ${path}`)
+      })
+      const runtime = createClawRuntime({
+        store: store as never,
+        runtimeRequest: runtimeRequest as never,
+        logError: () => undefined,
+        createScheduledTaskFromText: vi.fn(async () => ({ kind: 'noop' as const }))
+      })
+      const body = JSON.stringify({
+        text: '16:9',
+        provider: 'weixin',
+        channelId: 'channel_weixin',
+        chatId: 'wx_user_1',
+        messageId: 'wx_msg_video',
+        senderId: 'wx_user_1',
+        senderName: 'Alice'
+      })
+      const req = {
+        method: 'POST',
+        url: settings.claw.im.path,
+        headers: {},
+        async *[Symbol.asyncIterator]() {
+          yield Buffer.from(body)
+        }
+      }
+      let status = 0
+      let responseBody = ''
+      const res = {
+        writeHead: vi.fn((nextStatus: number) => {
+          status = nextStatus
+        }),
+        end: vi.fn((payload: string) => {
+          responseBody = payload
+        })
+      }
+
+      await (runtime as unknown as {
+        handleWebhook: (request: typeof req, response: typeof res) => Promise<void>
+      }).handleWebhook(req, res)
+
+      expect(status).toBe(200)
+      const parsed = JSON.parse(responseBody)
+      expect(parsed).toMatchObject({ ok: true, reply: '视频已生成。' })
+      expect(parsed.files).toEqual([
+        {
+          path: realVideoPath,
+          relativePath: '.deepseekgui-media/video-20260612061000-c0de.mp4',
+          fileName: 'video-20260612061000-c0de.mp4'
         }
       ])
     } finally {

@@ -39,6 +39,7 @@ import {
   logErrorPayloadSchema,
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
+  providerProbePayloadSchema,
   rootPathSchema,
   runtimeRequestPayloadSchema,
   scheduleTaskFromTextPayloadSchema,
@@ -57,13 +58,16 @@ import {
   workspaceFileTargetPayloadSchema,
   workspaceFileWatchPayloadSchema,
   workspaceFileWritePayloadSchema,
+  speechTranscribePayloadSchema,
   writeExportPayloadSchema,
   writeRichClipboardPayloadSchema,
   writeInfographicPayloadSchema,
   writeInlineCompletionPayloadSchema,
+  writeRetrievalPayloadSchema,
   workspaceRootSchema
 } from './app-ipc-schemas'
 import type { JsonSettingsStore } from '../settings-store'
+import { probeModelProvider } from '../provider-connection'
 import type { ClawRuntime } from '../claw-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
 import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
@@ -80,6 +84,7 @@ import {
   readClipboardImage,
   readWorkspaceImage,
   readWorkspaceFile,
+  readWorkspacePdf,
   renameWorkspaceEntry,
   resolveOpenTargetPath,
   resolveWorkspaceFile,
@@ -91,7 +96,9 @@ import {
   listWriteInlineCompletionDebugEntries,
   requestWriteInlineCompletion
 } from '../services/write-inline-completion-service'
+import { retrieveWriteContext } from '../services/write-retrieval-service'
 import { requestWriteInfographic } from '../services/write-infographic-service'
+import { requestSpeechTranscription } from '../services/speech-to-text-service'
 import { copyWriteDocumentAsRichText, exportWriteDocument } from '../services/write-export-service'
 import { listGuiSkills } from '../services/skill-service'
 
@@ -109,11 +116,13 @@ type RegisterAppIpcHandlersOptions = {
   store: JsonSettingsStore
   getMainWindow: () => BrowserWindow | null
   applySettingsPatch: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
+  saveSettingsPatch: (partial: AppSettingsPatch) => Promise<AppSettingsV1>
   runtimeRequest: (
     path: string,
     method?: string,
     body?: string
   ) => Promise<RuntimeRequestResult>
+  restartRuntime: () => Promise<void>
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawRuntime: () => ClawRuntime | null
   getScheduleRuntime: () => ScheduleRuntime | null
@@ -287,7 +296,9 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     store,
     getMainWindow,
     applySettingsPatch,
+    saveSettingsPatch,
     runtimeRequest,
+    restartRuntime,
     fetchUpstreamModels,
     getClawRuntime,
     getScheduleRuntime,
@@ -394,13 +405,25 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('settings:set', settingsPatchSchema, partial) as AppSettingsPatch
     )
   )
+  ipcMain.handle('settings:save-silent', async (_, partial: unknown) =>
+    saveSettingsPatch(
+      parseIpcPayload('settings:save-silent', settingsPatchSchema, partial) as AppSettingsPatch
+    )
+  )
 
   ipcMain.handle('runtime:request', async (_, payload: unknown) => {
     const request = parseIpcPayload('runtime:request', runtimeRequestPayloadSchema, payload)
     return runtimeRequest(request.path, request.method, request.body)
   })
 
+  ipcMain.handle('runtime:restart', async () => restartRuntime())
+
   ipcMain.handle('upstream:models', async () => fetchUpstreamModels())
+
+  ipcMain.handle('provider:probe', async (_, payload: unknown) => {
+    const request = parseIpcPayload('provider:probe', providerProbePayloadSchema, payload)
+    return probeModelProvider(request)
+  })
 
   ipcMain.handle('claw:status', async (): Promise<ClawRuntimeStatus> =>
     getClawRuntime()?.status() ?? {
@@ -477,7 +500,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
         : undefined
       return scheduleRuntime.createScheduledTaskFromText(request.text, {
         workspaceRoot: channel?.workspaceRoot || settings.schedule.defaultWorkspaceRoot || settings.workspaceRoot,
+        clawChannelId: channel?.id ?? request.channelId,
+        providerId: request.providerId,
         modelHint: request.modelHint,
+        reasoningEffort: request.reasoningEffort,
         mode: request.mode
       })
     }
@@ -495,7 +521,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       if (!scheduleRuntime) return { kind: 'error', message: 'Schedule runtime is not initialized.' }
       return scheduleRuntime.createScheduledTaskFromText(request.text, {
         workspaceRoot: request.workspaceRoot,
+        clawChannelId: request.clawChannelId,
+        providerId: request.providerId,
         modelHint: request.modelHint,
+        reasoningEffort: request.reasoningEffort,
         mode: request.mode
       })
     }
@@ -711,6 +740,11 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('file:read-workspace-image', workspaceFileTargetPayloadSchema, payload)
     )
   )
+  ipcMain.handle('file:read-workspace-pdf', async (_, payload: unknown) =>
+    readWorkspacePdf(
+      parseIpcPayload('file:read-workspace-pdf', workspaceFileTargetPayloadSchema, payload)
+    )
+  )
   ipcMain.handle('file:save-as', async (_, payload: unknown) =>
     saveWorkspaceFileAs(payload, getMainWindow)
   )
@@ -819,10 +853,29 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       parseIpcPayload('write:inline-completion', writeInlineCompletionPayloadSchema, payload)
     )
   )
+  ipcMain.handle('write:retrieve-context', async (_, payload: unknown) => {
+    try {
+      const context = await retrieveWriteContext(
+        parseIpcPayload('write:retrieve-context', writeRetrievalPayloadSchema, payload)
+      )
+      return { ok: true as const, context }
+    } catch (error) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error)
+      }
+    }
+  })
   ipcMain.handle('write:generate-infographic', async (_, payload: unknown) =>
     requestWriteInfographic(
       await store.load(),
       parseIpcPayload('write:generate-infographic', writeInfographicPayloadSchema, payload)
+    )
+  )
+  ipcMain.handle('speech:transcribe', async (_, payload: unknown) =>
+    requestSpeechTranscription(
+      await store.load(),
+      parseIpcPayload('speech:transcribe', speechTranscribePayloadSchema, payload)
     )
   )
   ipcMain.handle('write:inline-completion-debug:list', async () => listWriteInlineCompletionDebugEntries())

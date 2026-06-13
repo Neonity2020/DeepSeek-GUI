@@ -620,25 +620,22 @@ export function buildThreadEventSink(
         let nextReasoningFirstAtByUserId = s.turnReasoningFirstAtByUserId
         let nextReasoningLastAtByUserId = s.turnReasoningLastAtByUserId
         const userId = s.currentTurnUserId
+        let sawReasoning = false
         for (const delta of deltas) {
           if (delta.kind === 'agent_reasoning') {
             liveReasoning += delta.text
-            if (userId) {
-              const now = Date.now()
-              if (typeof nextReasoningFirstAtByUserId[userId] !== 'number') {
-                nextReasoningFirstAtByUserId =
-                  nextReasoningFirstAtByUserId === s.turnReasoningFirstAtByUserId
-                    ? { ...s.turnReasoningFirstAtByUserId, [userId]: now }
-                    : { ...nextReasoningFirstAtByUserId, [userId]: now }
-              }
-              nextReasoningLastAtByUserId =
-                nextReasoningLastAtByUserId === s.turnReasoningLastAtByUserId
-                  ? { ...s.turnReasoningLastAtByUserId, [userId]: now }
-                  : { ...nextReasoningLastAtByUserId, [userId]: now }
-            }
+            sawReasoning = true
             continue
           }
           liveAssistant += delta.text
+        }
+        // Stamp reasoning timings once per batch instead of per delta.
+        if (sawReasoning && userId) {
+          const now = Date.now()
+          if (typeof nextReasoningFirstAtByUserId[userId] !== 'number') {
+            nextReasoningFirstAtByUserId = { ...s.turnReasoningFirstAtByUserId, [userId]: now }
+          }
+          nextReasoningLastAtByUserId = { ...s.turnReasoningLastAtByUserId, [userId]: now }
         }
         return {
           ...base,

@@ -19,6 +19,11 @@ import { buildMemoryToolProviders } from '../adapters/tool/memory-tool-provider.
 import { buildDelegationToolProviders } from '../adapters/tool/delegation-tool-provider.js'
 import { buildWebToolProviders } from '../adapters/tool/web-tool-provider.js'
 import { buildImageGenToolProviders } from '../adapters/tool/image-gen-tool-provider.js'
+import {
+  buildMusicGenToolProviders,
+  buildSpeechGenToolProviders,
+  buildVideoGenToolProviders
+} from '../adapters/tool/media-gen-tool-provider.js'
 import { LocalWorkspaceInspector } from '../adapters/workspace/local-workspace-inspector.js'
 import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 import {
@@ -140,16 +145,17 @@ export async function createKunServeRuntime(
     nowIso
   })
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
-  await seedUsageCarryover({ threadStore, sessionStore, usageService })
+  const modelProfiles = modelContextProfilesFromConfig({
+    contextCompaction: options.contextCompaction,
+    models: options.models
+  })
+  const modelCapabilities = (model: string) => modelCapabilitiesForModel(model, modelProfiles)
   const modelClient = new DeepseekCompatModelClient({
     baseUrl: options.baseUrl,
     apiKey: options.apiKey,
     endpointFormat: options.endpointFormat ?? DEFAULT_MODEL_ENDPOINT_FORMAT,
-    model: options.model
-  })
-  const modelProfiles = modelContextProfilesFromConfig({
-    contextCompaction: options.contextCompaction,
-    models: options.models
+    model: options.model,
+    modelCapabilities
   })
   const reviewService = new ReviewService({
     threadStore,
@@ -157,15 +163,19 @@ export async function createKunServeRuntime(
     model: modelClient,
     defaultModel: options.model,
     nowIso,
-    modelCapabilities: (model) => modelCapabilitiesForModel(model, modelProfiles),
+    modelCapabilities,
     ...(options.models ? { models: options.models } : {}),
     ...(options.contextCompaction ? { contextCompaction: options.contextCompaction } : {}),
     ...(tokenEconomy ? { tokenEconomy } : {}),
     ...(options.runtime ? { runtime: options.runtime } : {})
   })
-  const mcpProviders = await buildMcpToolProviders(options.capabilities?.mcp)
+  // Independent I/O; all must still finish before the server listens.
+  const [mcpProviders, skillRuntime] = await Promise.all([
+    buildMcpToolProviders(options.capabilities?.mcp),
+    SkillRuntime.create(options.capabilities?.skills),
+    seedUsageCarryover({ threadStore, sessionStore, usageService })
+  ])
   const webProviders = buildWebToolProviders(options.capabilities?.web)
-  const skillRuntime = await SkillRuntime.create(options.capabilities?.skills)
   const attachmentStore = options.capabilities?.attachments.enabled
     ? new FileAttachmentStore({
         rootDir: join(options.dataDir, 'attachments'),
@@ -184,6 +194,9 @@ export async function createKunServeRuntime(
     attachmentStore,
     nowIso
   })
+  const speechGenProviders = buildSpeechGenToolProviders(options.capabilities?.speechGen, { nowIso })
+  const musicGenProviders = buildMusicGenToolProviders(options.capabilities?.musicGen, { nowIso })
+  const videoGenProviders = buildVideoGenToolProviders(options.capabilities?.videoGen, { nowIso })
   const baseToolProviders = [
     {
       id: 'builtin',
@@ -195,7 +208,10 @@ export async function createKunServeRuntime(
     ...mcpProviders.providers,
     ...webProviders.providers,
     ...buildMemoryToolProviders(memoryStore),
-    ...imageGenProviders.providers
+    ...imageGenProviders.providers,
+    ...speechGenProviders.providers,
+    ...musicGenProviders.providers,
+    ...videoGenProviders.providers
   ]
   const childRegistry = new CapabilityRegistry(baseToolProviders)
   const childToolHost = new LocalToolHost({ registry: childRegistry, readTracker: true })
@@ -214,7 +230,7 @@ export async function createKunServeRuntime(
           contextCompaction: options.contextCompaction,
           approvalPolicy: options.approvalPolicy,
           sandboxMode: options.sandboxMode,
-          modelCapabilities: (model) => modelCapabilitiesForModel(model, modelProfiles),
+          modelCapabilities,
           skillRuntime,
           tokenEconomy,
           ...(options.runtime ? { runtime: options.runtime } : {}),
@@ -228,7 +244,7 @@ export async function createKunServeRuntime(
     : undefined
   const capabilities = buildRuntimeCapabilityManifest({
     config: options.capabilities,
-    model: modelCapabilitiesForModel(options.model, modelProfiles),
+    model: modelCapabilities(options.model),
     mcp: {
       configuredServers: Object.keys(options.capabilities?.mcp.servers ?? {}).length,
       connectedServers: mcpProviders.connectedServers,
@@ -263,6 +279,18 @@ export async function createKunServeRuntime(
     imageGen: {
       available: imageGenProviders.available,
       reason: imageGenProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
+    },
+    speechGen: {
+      available: speechGenProviders.available,
+      reason: speechGenProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
+    },
+    musicGen: {
+      available: musicGenProviders.available,
+      reason: musicGenProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
+    },
+    videoGen: {
+      available: videoGenProviders.available,
+      reason: videoGenProviders.diagnostics.find((diagnostic) => diagnostic.reason)?.reason
     }
   })
   const registry = new CapabilityRegistry([
@@ -300,7 +328,7 @@ export async function createKunServeRuntime(
     prefix,
     ids,
     nowIso,
-    modelCapabilities: (model) => modelCapabilitiesForModel(model, modelProfiles),
+    modelCapabilities,
     skillRuntime,
     tokenEconomy,
     contextCompaction: options.contextCompaction,
@@ -369,7 +397,10 @@ export async function createKunServeRuntime(
       memory: memoryStore
         ? await memoryStore.diagnostics()
         : { enabled: false, rootDir: '', activeCount: 0, tombstoneCount: 0, lastInjectedIds: [] },
-      imageGen: imageGenProviders.diagnostics
+      imageGen: imageGenProviders.diagnostics,
+      speechGen: speechGenProviders.diagnostics,
+      musicGen: musicGenProviders.diagnostics,
+      videoGen: videoGenProviders.diagnostics
     }),
     skills: () => skillRuntime.diagnostics(),
     shutdown: async () => {
@@ -460,6 +491,18 @@ export async function startKunServe(
     host: options.host,
     port: options.port
   })
+  // Background sweep after listen: settle turns orphaned by a crash so
+  // clients stop spinning on them, without delaying readiness.
+  void runtime.turnService
+    .reconcileOrphanedTurns()
+    .then((count) => {
+      if (count > 0) {
+        console.warn(`[kun] marked ${count} orphaned turn(s) as failed after restart`)
+      }
+    })
+    .catch((error) => {
+      console.warn('[kun] orphaned turn reconciliation failed:', error)
+    })
   return {
     ...server,
     runtime,

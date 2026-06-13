@@ -38,6 +38,7 @@ import { createSideActions } from './chat-store-side-actions'
 import {
   activeClawChannel,
   compactCodeWorkspaceRoots,
+  fallbackComposerModel,
   forgetCodeWorkspaceRoot,
   hydrateBlockModelLabels,
   isClawThread,
@@ -127,6 +128,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   workspaceRoot: '',
   workspaceLabel: i18n.t('common:workingDirectory'),
   runtimeConnection: 'idle',
+  runtimeStatus: null,
   codeWorkspaceRoots: [],
   threads: [],
   threadSearch: '',
@@ -183,6 +185,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     persistComposerModel,
     readStoredComposerModel,
     mergeComposerPickList,
+    fallbackComposerModel,
     getComposerModelLoadPromise: () => composerModelLoadPromise,
     setComposerModelLoadPromise: (promise) => {
       composerModelLoadPromise = promise

@@ -46,6 +46,10 @@ class RendererRuntimeClient {
     return window.kunGui.runtimeRequest(path, method, body)
   }
 
+  restartRuntime(): Promise<void> {
+    return window.kunGui.restartRuntime()
+  }
+
   startSse(threadId: string, sinceSeq: number, streamId?: string): Promise<{ streamId: string }> {
     return window.kunGui.startSse(threadId, sinceSeq, streamId)
   }

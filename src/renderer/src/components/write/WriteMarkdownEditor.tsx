@@ -1,10 +1,15 @@
-import { useEffect, useRef, type ReactElement } from 'react'
+import { useEffect, useRef, type MutableRefObject, type ReactElement } from 'react'
 import { Annotation, Compartment, EditorSelection, EditorState, type Extension } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { drawSelection, EditorView, highlightActiveLine, keymap, type ViewUpdate } from '@codemirror/view'
+import {
+  applyWriteBlockTypeToLines,
+  detectWriteBlockTypeFromLine,
+  type WriteBlockType
+} from '../../write/block-type'
 import { buildInlineCompletionExtension, buildInlineCompletionPayload } from '../../write/inline-completion'
 import { writeMarkdownLivePreviewExtensions } from '../../write/markdown-live-preview'
 import { createWriteRecentEdit, type WriteRecentEdit } from '../../write/recent-edits'
@@ -25,6 +30,14 @@ export type WriteSelectionAnchorRect = {
   height: number
 }
 
+export type WriteSelectionPageRect = {
+  page: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type WriteSelectionRange = {
   from: number
   to: number
@@ -34,6 +47,7 @@ export type WriteSelectionRange = {
   endColumn: number
   text: string
   charCount: number
+  page?: number
 }
 
 export type WriteEditorSelectionState = {
@@ -41,6 +55,27 @@ export type WriteEditorSelectionState = {
   ranges: WriteSelectionRange[]
   charCount: number
   anchorRect?: WriteSelectionAnchorRect
+  rects?: WriteSelectionPageRect[]
+  sourceKind?: 'text' | 'pdf'
+  pageStart?: number
+  pageEnd?: number
+  /** Block type of the line at the selection start (selection toolbar). */
+  blockType?: WriteBlockType
+}
+
+/**
+ * Imperative surface for the selection toolbar: replaces a document range
+ * through the editor so undo history stays granular and the selection ends up
+ * covering the replacement (allowing chained formatting).
+ */
+export type WriteMarkdownEditorHandle = {
+  applyRangeReplacement: (
+    range: { from: number; to: number },
+    original: string,
+    replacement: string
+  ) => boolean
+  /** Rewrite the block markers of the lines spanning the current selection. */
+  setBlockType: (type: WriteBlockType) => boolean
 }
 
 type Props = {
@@ -65,6 +100,7 @@ type Props = {
   onSaveShortcut: () => void
   onImagePasteSaved?: () => void
   onImagePasteError?: (message: string) => void
+  handleRef?: MutableRefObject<WriteMarkdownEditorHandle | null>
 }
 
 const externalValueSyncAnnotation = Annotation.define<boolean>()
@@ -146,11 +182,13 @@ function selectionState(view: EditorView): WriteEditorSelectionState {
     .filter((value): value is WriteSelectionRange => value !== null)
 
   const text = ranges.map((range) => range.text).join('\n\n')
+  const mainFrom = clampOffset(view.state, view.state.selection.main.from)
   return {
     text,
     ranges,
     charCount: ranges.reduce((total, range) => total + range.charCount, 0),
-    anchorRect: selectionAnchorRect(view, ranges)
+    anchorRect: selectionAnchorRect(view, ranges),
+    blockType: detectWriteBlockTypeFromLine(view.state.doc.lineAt(mainFrom).text)
   }
 }
 
@@ -319,7 +357,8 @@ export function WriteMarkdownEditor({
   onSelectionChange,
   onSaveShortcut,
   onImagePasteSaved,
-  onImagePasteError
+  onImagePasteError,
+  handleRef
 }: Props): ReactElement {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -579,13 +618,55 @@ export function WriteMarkdownEditor({
     lastSelectionRef.current = initialSelection
     onSelectionChangeRef.current(initialSelection)
 
+    if (handleRef) {
+      handleRef.current = {
+        applyRangeReplacement: (range, original, replacement) => {
+          const instance = viewRef.current
+          if (!instance || readOnlyRef.current) return false
+          const from = clampOffset(instance.state, range.from)
+          const to = clampOffset(instance.state, range.to)
+          if (to < from || instance.state.sliceDoc(from, to) !== original) return false
+          instance.focus()
+          instance.dispatch({
+            changes: { from, to, insert: replacement },
+            selection: EditorSelection.range(from, from + replacement.length),
+            scrollIntoView: true
+          })
+          return true
+        },
+        setBlockType: (type) => {
+          const instance = viewRef.current
+          if (!instance || readOnlyRef.current) return false
+          const { from, to } = instance.state.selection.main
+          const startLine = instance.state.doc.lineAt(from)
+          const endLine = instance.state.doc.lineAt(to)
+          const lines: string[] = []
+          for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber += 1) {
+            lines.push(instance.state.doc.line(lineNumber).text)
+          }
+          const next = applyWriteBlockTypeToLines(lines, type).join('\n')
+          if (instance.state.sliceDoc(startLine.from, endLine.to) === next) return false
+          instance.focus()
+          instance.dispatch({
+            changes: { from: startLine.from, to: endLine.to, insert: next },
+            selection: EditorSelection.range(startLine.from, startLine.from + next.length),
+            scrollIntoView: true
+          })
+          return true
+        }
+      }
+    }
+
     return () => {
+      if (handleRef) handleRef.current = null
       view.destroy()
       viewRef.current = null
       themeCompartmentRef.current = null
       livePreviewCompartmentRef.current = null
       editableCompartmentRef.current = null
     }
+    // Mount-once editor; handleRef is a stable ref container from the parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

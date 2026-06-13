@@ -47,6 +47,9 @@ export class InMemoryEventBus implements EventBus {
     this.subscribers.set(threadId, set)
     return () => {
       set.delete(handler)
+      if (set.size === 0 && this.subscribers.get(threadId) === set) {
+        this.subscribers.delete(threadId)
+      }
     }
   }
 

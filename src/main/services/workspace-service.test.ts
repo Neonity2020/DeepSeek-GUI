@@ -26,6 +26,7 @@ import {
   readClipboardImage,
   readWorkspaceImage,
   readWorkspaceFile,
+  readWorkspacePdf,
   renameWorkspaceEntry,
   resolveWorkspaceFile,
   saveWorkspaceClipboardImage,
@@ -237,6 +238,39 @@ describe('workspace-service boundary checks', () => {
     expect(result.path).toBe(await realpath(imagePath))
     expect(result.mimeType).toBe('image/png')
     expect(result.dataUrl).toBe('data:image/png;base64,iVBORw==')
+  })
+
+  it('reads supported workspace PDFs as base64 metadata without exposing raw paths', async () => {
+    const pdfPath = join(workspaceRoot, 'papers', 'study.pdf')
+    const pdfBytes = Buffer.from('%PDF-1.4\n%%EOF')
+    await mkdir(join(workspaceRoot, 'papers'), { recursive: true })
+    await writeFile(pdfPath, pdfBytes)
+
+    const result = await readWorkspacePdf({
+      path: 'papers/study.pdf',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.path).toBe(await realpath(pdfPath))
+    expect(result.mimeType).toBe('application/pdf')
+    expect(result.dataBase64).toBe(pdfBytes.toString('base64'))
+    expect(result.size).toBe(pdfBytes.length)
+    expect(result.mtimeMs).toBeGreaterThan(0)
+  })
+
+  it('rejects non-PDF files from the PDF reader', async () => {
+    const result = await readWorkspacePdf({
+      path: 'inside.txt',
+      workspaceRoot
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toContain('not a PDF')
+    }
   })
 
   it('renames files within the selected workspace', async () => {

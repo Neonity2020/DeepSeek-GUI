@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { FileQuestion, Lightbulb, ListChecks, PanelRightClose, Plus, Search, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
+import type { AttachmentReference, ChatBlock, RuntimeConnectionStatus } from '../../agent/types'
 import type { QueuedUserMessage } from '../../store/chat-store-types'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
 import type { SddDraft } from '../../sdd/sdd-draft-store'
@@ -30,6 +30,13 @@ type Props = {
   setComposerReasoningEffort: (effort: ComposerReasoningEffort) => void
   queuedMessages: QueuedUserMessage[]
   removeQueuedMessage: (id: string) => void
+  attachments?: AttachmentReference[]
+  attachmentUploadEnabled?: boolean
+  attachmentUploadBusy?: boolean
+  attachmentUploadError?: string | null
+  onPickAttachments?: (files: File[]) => void
+  onPasteClipboardImage?: (options?: { silentNoImage?: boolean }) => void | Promise<void>
+  onRemoveAttachment?: (id: string) => void
   onSend: () => void
   onInterrupt: (options?: { discard?: boolean }) => void
   onRetryConnection: () => void
@@ -59,6 +66,13 @@ export function SddAssistantPanel({
   setComposerReasoningEffort,
   queuedMessages,
   removeQueuedMessage,
+  attachments = [],
+  attachmentUploadEnabled = false,
+  attachmentUploadBusy = false,
+  attachmentUploadError = null,
+  onPickAttachments,
+  onPasteClipboardImage,
+  onRemoveAttachment,
   onSend,
   onInterrupt,
   onRetryConnection,
@@ -207,6 +221,13 @@ export function SddAssistantPanel({
           modelPickerMode="combobox"
           queuedMessages={queuedMessages}
           onRemoveQueuedMessage={removeQueuedMessage}
+          attachments={attachments}
+          attachmentUploadEnabled={attachmentUploadEnabled}
+          attachmentUploadBusy={attachmentUploadBusy}
+          attachmentUploadError={attachmentUploadError}
+          onPickAttachments={onPickAttachments}
+          onPasteClipboardImage={onPasteClipboardImage}
+          onRemoveAttachment={onRemoveAttachment}
           onSend={onSend}
           onInterrupt={onInterrupt}
         />

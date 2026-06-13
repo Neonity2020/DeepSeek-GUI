@@ -7,8 +7,10 @@ import {
   clawThreadIdsFromChannels,
   clawThreadTitleLooksManaged,
   compactCodeWorkspaceRoots,
+  fallbackComposerModel,
   hydrateBlockModelLabels,
   isClawThread,
+  mergeComposerPickList,
   newClawChannel,
   normalizeTurnModelMap,
   rememberTurnModel
@@ -157,6 +159,26 @@ describe('chat-store Claw helpers', () => {
         [clawChannel()]
       )
     ).toBe(true)
+  })
+
+  it('keeps auto out of the composer pick list', () => {
+    const pick = mergeComposerPickList(true, ['auto', 'custom-model', ' '])
+
+    expect(pick).not.toContain('auto')
+    expect(pick).toContain('custom-model')
+    expect(pick).toContain('deepseek-v4-pro')
+    expect(pick).toContain('deepseek-v4-flash')
+    expect(mergeComposerPickList(false, ['upstream-model'])).not.toContain('upstream-model')
+  })
+
+  it('falls back to the runtime default model, then known defaults', () => {
+    const pick = ['a-model', 'custom-model', 'deepseek-v4-flash', 'deepseek-v4-pro']
+
+    expect(fallbackComposerModel(pick, 'custom-model')).toBe('custom-model')
+    expect(fallbackComposerModel(pick, 'auto')).toBe('deepseek-v4-pro')
+    expect(fallbackComposerModel(pick, 'missing-model')).toBe('deepseek-v4-pro')
+    expect(fallbackComposerModel(['a-model'], '')).toBe('a-model')
+    expect(fallbackComposerModel([], '')).toBe('')
   })
 
   it('normalizes and caps persisted turn model labels', () => {

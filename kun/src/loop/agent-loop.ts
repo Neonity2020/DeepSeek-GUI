@@ -17,6 +17,7 @@ import type { UsageService } from '../services/usage-service.js'
 import type { TurnService } from '../services/turn-service.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import type { PipelineStage } from '../contracts/events.js'
+import type { RuntimeErrorSeverity } from '../contracts/errors.js'
 import type { IdGenerator } from '../ports/id-generator.js'
 import type { ImmutablePrefix } from '../cache/immutable-prefix.js'
 import { ContextCompactor } from './context-compactor.js'
@@ -57,7 +58,6 @@ import {
 } from './token-economy.js'
 import { applyRequestHistoryHygiene } from './request-history-hygiene.js'
 import { estimateModelRequestInputTokens } from './model-request-estimator.js'
-import { estimateDeepseekInputTokenCost } from '../adapters/model/deepseek-pricing.js'
 import {
   recentAutoRouterContext,
   resolveAutoModelRoute,
@@ -74,9 +74,24 @@ import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const MAX_PARALLEL_TOOL_CALLS = 3
 const MAX_TURN_MODEL_STEPS = 64
+const MAX_TOOL_CATALOG_SNAPSHOTS = 256
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
 const DEFAULT_COMPACTION_SUMMARY_INPUT_MAX_BYTES = 96 * 1024
+
+type TurnFailure = {
+  error: string
+  code?: string
+  details?: unknown
+  severity?: RuntimeErrorSeverity
+}
+
+type ModelClientDiagnostics = {
+  provider?: string
+  providerBaseUrl?: string
+  endpointFormat?: string
+  configuredModel?: string
+}
 
 const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   setup: 'Setup',
@@ -389,6 +404,7 @@ export class AgentLoop {
   private readonly toolStormBreakers = new Map<string, ToolStormBreaker>()
   private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
   private readonly lastNoToolTextByTurn = new Map<string, string>()
+  private readonly turnFailures = new Map<string, TurnFailure>()
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -420,7 +436,13 @@ export class AgentLoop {
       await this.drainSteering(threadId, turnId, signal)
       await this.recordPipelineStage(threadId, turnId, 'post_start')
       const status = await this.loop(threadId, turnId, signal)
-      await this.opts.turns.finishTurn({ threadId, turnId, status })
+      const failure = status === 'failed' ? this.turnFailures.get(turnId) : undefined
+      await this.opts.turns.finishTurn({
+        threadId,
+        turnId,
+        status,
+        ...(failure ?? {})
+      })
       return status
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error)
@@ -450,11 +472,33 @@ export class AgentLoop {
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
+      this.turnFailures.delete(turnId)
     }
   }
 
   private async failTurn(threadId: string, turnId: string, message: string): Promise<void> {
     await this.opts.turns.finishTurn({ threadId, turnId, status: 'failed', error: message })
+  }
+
+  private rememberTurnFailure(turnId: string, failure: TurnFailure): void {
+    if (!failure.error.trim()) return
+    this.turnFailures.set(turnId, failure)
+  }
+
+  private modelClientDiagnostics(): ModelClientDiagnostics {
+    const client = this.opts.model as ModelClient & {
+      config?: {
+        baseUrl?: string
+        endpointFormat?: string
+        model?: string
+      }
+    }
+    return {
+      provider: client.provider,
+      ...(client.config?.baseUrl ? { providerBaseUrl: sanitizeProviderBaseUrl(client.config.baseUrl) } : {}),
+      ...(client.config?.endpointFormat ? { endpointFormat: client.config.endpointFormat } : {}),
+      ...(client.config?.model ? { configuredModel: client.config.model } : {})
+    }
   }
 
   private nowMs(): number {
@@ -581,9 +625,16 @@ export class AgentLoop {
     const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
     if (budgetGate === 'blocked') return 'stop'
     const loadedItems = await this.opts.sessionStore.loadItems(threadId)
-    const healed = healLoadedHistoryItems(loadedItems)
-    if (healed.changed) {
-      await this.opts.sessionStore.rewriteItems(threadId, healed.items)
+    // Heal (and possibly rewrite) on-disk history once per turn: within a
+    // turn the loop only appends well-formed items, and healing's deep
+    // change detection costs two full-history stringifies per call.
+    let historyItems: TurnItem[] = loadedItems
+    if (stepIndex === 0) {
+      const healed = healLoadedHistoryItems(loadedItems)
+      if (healed.changed) {
+        await this.opts.sessionStore.rewriteItems(threadId, healed.items)
+      }
+      historyItems = healed.items
     }
     await this.recordPipelineStage(
       threadId,
@@ -592,7 +643,7 @@ export class AgentLoop {
       prefixVolatilityStageDetails(detectVolatilePrefixContent(this.opts.prefix))
     )
     if (stepIndex > 0) {
-      const toolResultCount = healed.items.filter(
+      const toolResultCount = historyItems.filter(
         (item) => item.turnId === turnId && item.kind === 'tool_result'
       ).length
       await this.opts.events.record({
@@ -604,7 +655,7 @@ export class AgentLoop {
       })
     }
     const items = repairModelHistoryItems(
-      effectiveHistoryAfterLatestCompaction(healed.items)
+      effectiveHistoryAfterLatestCompaction(historyItems)
     )
     const approvalPolicy = normalizeApprovalPolicy(thread?.approvalPolicy)
     const sandboxMode = normalizeSandboxMode(thread?.sandboxMode)
@@ -724,7 +775,7 @@ export class AgentLoop {
     if (toolCatalogDrift.kind === 'breaking') return 'stop'
     const toolKinds = new Map(toolSpecs.map((tool) => [tool.name, tool.toolKind]))
     const createPlanSatisfied = planTurnActive
-      ? hasSuccessfulCreatePlanResult(healed.items, turnId)
+      ? hasSuccessfulCreatePlanResult(historyItems, turnId)
       : false
     const requiredToolName =
       planTurnActive &&
@@ -795,8 +846,10 @@ export class AgentLoop {
     let reasoningItemId = ''
     const completedToolCalls: ToolCallLike[] = []
     let stopReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop'
+    const modelClientDiagnostics = this.modelClientDiagnostics()
     await this.recordPipelineStage(threadId, turnId, 'pre_send', {
       model: request.model,
+      ...modelClientDiagnostics,
       historyItems: request.history.length,
       toolCount: request.tools.length,
       ...(request.requiredToolName ? { requiredToolName: request.requiredToolName } : {}),
@@ -808,7 +861,8 @@ export class AgentLoop {
       })
     })
     await this.recordPipelineStage(threadId, turnId, 'post_send', {
-      model: request.model
+      model: request.model,
+      ...modelClientDiagnostics
     })
     for await (const chunk of this.opts.model.stream(request)) {
       if (signal.aborted) return 'aborted'
@@ -906,15 +960,21 @@ export class AgentLoop {
           break
         }
         case 'completed':
-          stopReason = chunk.stopReason
+          if (stopReason !== 'error') stopReason = chunk.stopReason
           break
         case 'error':
+          this.rememberTurnFailure(turnId, {
+            error: chunk.message,
+            ...(chunk.code ? { code: chunk.code } : {}),
+            severity: 'error'
+          })
           await this.opts.events.record({
             kind: 'error',
             threadId,
             turnId,
             message: chunk.message,
-            code: chunk.code
+            code: chunk.code,
+            severity: 'error'
           })
           stopReason = 'error'
           break
@@ -961,7 +1021,7 @@ export class AgentLoop {
           const provider = toolProviderMetadata.get(CREATE_PLAN_TOOL_NAME)
           const toolKind = toolKinds.get(CREATE_PLAN_TOOL_NAME)
           const sourceRequest = activePlanContext?.sourceRequest ||
-            latestUserMessageText(healed.items, turnId) ||
+            latestUserMessageText(historyItems, turnId) ||
             turn?.prompt ||
             ''
           const argumentsForFallback: Record<string, unknown> = activePlanContext
@@ -1142,7 +1202,7 @@ export class AgentLoop {
       }
 
       if (!this.isParallelSafeToolCall(call, input.approvalPolicy, input.toolProviderKinds)) {
-        const result = await this.executeToolCall({
+        const result = await this.executeToolCallSafely({
           threadId: input.threadId,
           turnId: input.turnId,
           call,
@@ -1176,7 +1236,7 @@ export class AgentLoop {
 
       const settled = await Promise.allSettled(
         batch.map((entry) =>
-          this.executeToolCall({
+          this.executeToolCallSafely({
             threadId: input.threadId,
             turnId: input.turnId,
             call: entry,
@@ -1326,6 +1386,51 @@ export class AgentLoop {
         }
       }
     )
+  }
+
+  /**
+   * A crashing tool handler must surface as an error tool_result the
+   * model can react to, not kill the whole turn. Only turn aborts are
+   * allowed to propagate.
+   */
+  private async executeToolCallSafely(input: {
+    threadId: string
+    turnId: string
+    call: ToolCallLike
+    context: ToolHostContext
+  }): Promise<ToolHostResult> {
+    try {
+      return await this.executeToolCall(input)
+    } catch (error) {
+      if (input.context.abortSignal.aborted) throw error
+      const message = error instanceof Error ? error.message : String(error)
+      await this.opts.events.record({
+        kind: 'error',
+        threadId: input.threadId,
+        turnId: input.turnId,
+        message: `Tool call ${input.call.toolName} failed: ${message}`,
+        code: 'tool_execution_failed',
+        severity: 'warning'
+      })
+      return {
+        item: makeToolResultItem({
+          id: `item_${input.call.callId}`,
+          turnId: input.turnId,
+          threadId: input.threadId,
+          callId: input.call.callId,
+          toolName: input.call.toolName,
+          toolKind: input.call.toolKind ?? 'tool_call',
+          output: {
+            code: 'tool_execution_failed',
+            error: message,
+            guidance:
+              'The tool crashed while executing. Adjust the arguments or take a different approach instead of retrying the identical call.'
+          },
+          isError: true
+        }),
+        approved: false
+      }
+    }
   }
 
   private isRecoverableToolDispatchError(error: unknown): boolean {
@@ -1710,14 +1815,8 @@ export class AgentLoop {
   }): Promise<void> {
     const savedTokens = Math.max(0, Math.floor(input.rawInputTokens - input.sentInputTokens))
     if (savedTokens <= 0) return
-    const estimatedCost = estimateDeepseekInputTokenCost({
-      model: input.model,
-      inputTokens: savedTokens
-    })
     const usage = this.opts.usage.recordTokenEconomySavings(input.threadId, {
-      tokenEconomySavingsTokens: savedTokens,
-      ...(estimatedCost ? { tokenEconomySavingsUsd: estimatedCost.costUsd } : {}),
-      ...(estimatedCost ? { tokenEconomySavingsCny: estimatedCost.costCny } : {})
+      tokenEconomySavingsTokens: savedTokens
     })
     await this.opts.events.record({
       kind: 'usage',
@@ -1807,7 +1906,12 @@ export class AgentLoop {
       toolHashes: input.toolHashes
     }
     const previous = this.toolCatalogSnapshots.get(key)
+    this.toolCatalogSnapshots.delete(key)
     this.toolCatalogSnapshots.set(key, current)
+    if (this.toolCatalogSnapshots.size > MAX_TOOL_CATALOG_SNAPSHOTS) {
+      const oldest = this.toolCatalogSnapshots.keys().next().value
+      if (oldest !== undefined) this.toolCatalogSnapshots.delete(oldest)
+    }
     if (!previous || previous.fingerprint === input.fingerprint) return { kind: 'none' }
     return isAdditiveToolCatalogChange(previous, current)
       ? { kind: 'additive', previous }
@@ -2219,6 +2323,19 @@ function resolveModelMode(...candidates: Array<string | undefined>): { kind: 'fi
 function normalizeRequestedReasoningEffort(effort: string | undefined): string | undefined {
   const normalized = effort?.trim().toLowerCase()
   return normalized && normalized !== 'auto' ? normalized : undefined
+}
+
+function sanitizeProviderBaseUrl(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl)
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return baseUrl.replace(/[?#].*$/, '').replace(/\/+$/, '')
+  }
 }
 
 function autoModelRouteKey(threadId: string, turnId: string): string {

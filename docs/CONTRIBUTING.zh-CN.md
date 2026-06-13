@@ -172,7 +172,7 @@ npm run dev
 
 - `docs: rewrite README and contribution guides`
 - `feat: improve runtime connection recovery`
-- `fix: handle missing DeepSeek binary path`
+- `fix: handle missing Kun binary path`
 
 ## 提交 Issue
 
@@ -202,4 +202,6 @@ npm run dev
 
 ## 许可证
 
-向 Kun 贡献代码即表示你同意你的贡献将基于 [MIT 许可证](../LICENSE) 发布。
+外部贡献基于英文 [Contributor License Agreement](../CLA.md) 接收。提交贡献即表示你同意 CLA 中的授权条款，包括项目所有者可将你的贡献作为 Kun 的一部分进行再授权、商业授权或其他形式授权。
+
+项目本身默认仍基于 [PolyForm Noncommercial License 1.0.0](../LICENSE) 发布；除非项目所有者另行提供书面商业授权。

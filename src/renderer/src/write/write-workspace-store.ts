@@ -6,7 +6,8 @@ import {
   DEFAULT_WRITE_INLINE_COMPLETION_MODEL,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_DEBOUNCE_MS,
   DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS,
-  DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE
+  DEFAULT_WRITE_INLINE_LONG_COMPLETION_MIN_ACCEPT_SCORE,
+  defaultWriteSelectionAssistSettings
 } from '@shared/app-settings'
 import { quotedSelectionFromEditor } from './quoted-selection'
 import { writeSelectionStatesEqual } from './write-selection'
@@ -24,6 +25,7 @@ import {
   formatWriteImageLoadError,
   initialState,
   isMissingImageIpc,
+  normalizeWriteAssistantModel,
   pathsEqual,
   readStoredAssistantModel,
   readStoredAssistantOpen,
@@ -71,6 +73,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
     longMaxTokens: DEFAULT_WRITE_INLINE_LONG_COMPLETION_MAX_TOKENS
   },
   inlineCompletionApiReady: false,
+  selectionAssist: defaultWriteSelectionAssistSettings(),
   imageGenReady: false,
   settingsLoading: false,
   settingsError: null,
@@ -313,7 +316,7 @@ export const useWriteWorkspaceStore = create<WriteWorkspaceState>((set, get) => 
   },
 
   setAssistantModel: (model) => {
-    const normalized = model.trim()
+    const normalized = normalizeWriteAssistantModel(model)
     writeBrowserStorageItem(WRITE_ASSISTANT_MODEL_KEY, normalized)
     set({ assistantModel: normalized })
   },

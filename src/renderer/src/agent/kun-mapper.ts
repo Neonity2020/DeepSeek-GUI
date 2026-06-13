@@ -607,11 +607,7 @@ function usageFromCore(usage: CoreUsageSnapshotJson): ThreadUsageSnapshot {
     totalTokens: usage.totalTokens ?? inputTokens + outputTokens,
     costUsd: usage.costUsd ?? 0,
     costCny: usage.costCny ?? null,
-    cacheSavingsUsd: usage.cacheSavingsUsd ?? 0,
-    cacheSavingsCny: usage.cacheSavingsCny ?? null,
     tokenEconomySavingsTokens: usage.tokenEconomySavingsTokens ?? 0,
-    tokenEconomySavingsUsd: usage.tokenEconomySavingsUsd ?? 0,
-    tokenEconomySavingsCny: usage.tokenEconomySavingsCny ?? null,
     turns: usage.turns ?? 0
   }
 }

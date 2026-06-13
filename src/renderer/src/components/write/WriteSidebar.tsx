@@ -40,11 +40,9 @@ import { WriteFileTree } from './WriteFileTree'
 type Props = {
   activeView: 'chat' | 'write' | 'claw' | 'schedule'
   connectPhoneSidebarOpen: boolean
-  ikunModeEnabled: boolean
   onCodeOpen: () => void
   onWriteOpen: () => void
   onOpenSettings: (section?: SettingsRouteSection) => void
-  onToggleIkunMode: () => void
   onToggleConnectPhone: () => void
   onToggleSidebar: () => void
 }
@@ -60,11 +58,9 @@ type Translate = (key: string, opts?: Record<string, unknown>) => string
 export function WriteSidebar({
   activeView,
   connectPhoneSidebarOpen,
-  ikunModeEnabled,
   onCodeOpen,
   onWriteOpen,
   onOpenSettings,
-  onToggleIkunMode,
   onToggleConnectPhone,
   onToggleSidebar
 }: Props): ReactElement {
@@ -285,9 +281,7 @@ export function WriteSidebar({
       <div className="ds-no-drag flex flex-col px-0.5">
         <WorkspaceModeTabs
           activeView={activeView}
-          ikunModeEnabled={ikunModeEnabled}
           onCodeOpen={onCodeOpen}
-          onToggleIkunMode={onToggleIkunMode}
           onWriteOpen={onWriteOpen}
         />
         <SidebarCommandRow
@@ -522,7 +516,7 @@ function WriteEntryDialog({
       <form
         onSubmit={onSubmit}
         onMouseDown={(event) => event.stopPropagation()}
-        className="w-full max-w-sm rounded-[24px] border border-ds-border bg-ds-card p-5 shadow-[0_24px_72px_rgba(15,23,42,0.22)]"
+        className="w-full max-w-sm rounded-[24px] border border-ds-border bg-ds-card p-5 shadow-[0_24px_72px_rgba(20,47,95,0.22)]"
       >
         <h2 className="text-[18px] font-semibold tracking-[-0.035em] text-ds-ink">
           {entryDialogTitle(dialog, t)}

@@ -21,11 +21,7 @@ function bucket(date: string, totalTokens: number, turns = 1) {
     totalTokens,
     costUsd: totalTokens / 1_000_000,
     costCny: (totalTokens / 1_000_000) * 7.2,
-    cacheSavingsUsd: 0,
-    cacheSavingsCny: 0,
     tokenEconomySavingsTokens: 0,
-    tokenEconomySavingsUsd: 0,
-    tokenEconomySavingsCny: 0,
     turns,
     threadCount: turns > 0 ? 1 : 0,
     cacheHitRate: totalTokens > 0 ? 0.25 : null
@@ -50,11 +46,7 @@ function usage(buckets = [bucket('2026-05-01', 1200), bucket('2026-05-02', 10000
       totalTokens,
       costUsd: totalTokens / 1_000_000,
       costCny: (totalTokens / 1_000_000) * 7.2,
-      cacheSavingsUsd: 0,
-      cacheSavingsCny: 0,
       tokenEconomySavingsTokens: 0,
-      tokenEconomySavingsUsd: 0,
-      tokenEconomySavingsCny: 0,
       turns,
       threadCount: buckets.filter((item) => item.turns > 0).length,
       cacheHitRate: totalTokens > 0 ? 0.25 : null,
@@ -153,11 +145,7 @@ describe('InitialSessionUsageHeatmap', () => {
       totalTokens: 2410045,
       costUsd: 2.41,
       costCny: 17.35,
-      cacheSavingsUsd: 0.91,
-      cacheSavingsCny: 6.55,
       tokenEconomySavingsTokens: 0,
-      tokenEconomySavingsUsd: 0,
-      tokenEconomySavingsCny: 0,
       turns: 3,
       threadCount: 1,
       cacheHitRate: 1906304 / (1906304 + 459039)
@@ -245,7 +233,7 @@ describe('InitialSessionUsageHeatmap', () => {
 
     expect(html).toContain('Expand calendar')
     expect(html).toContain('ds-runtime-wake-stage')
-    expect(html).toContain('ds-work-logo')
+    expect(html).toContain('ds-kun-state-sleep')
     expect(html).not.toContain('Keep the canvas clear')
     expect(html).not.toContain('Daily Kun usage calendar')
   })

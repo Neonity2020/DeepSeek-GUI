@@ -17,7 +17,10 @@ import type {
   WriteSelectionAnchorRect,
   WriteSelectionRange
 } from '../../components/write/WriteMarkdownEditor'
+import type { EditorState } from '@tiptap/pm/state'
 import { buildInlineCompletionPayload } from '../inline-completion'
+import type { WriteBlockType } from '../block-type'
+import type { WriteInlineFormatKind } from '../inline-format'
 import { createWriteRecentEdit, type WriteRecentEdit } from '../recent-edits'
 import {
   auditWriteMarkdownFidelity,
@@ -56,6 +59,32 @@ export type WriteRichEditorHandle = {
     replacement: string,
     instruction?: string
   ) => boolean
+  /** Replace the image node whose src matches exactly with parsed markdown
+   * (an empty string deletes the node). Backs async infographic completion,
+   * where the placeholder position can shift under concurrent edits. */
+  replaceImageBySrc: (src: string, replacementMarkdown: string) => boolean
+  /** Toggle an inline mark on the current selection (selection toolbar). */
+  toggleInlineFormat: (kind: WriteInlineFormatKind) => boolean
+  /** Set the block type of the current selection (selection toolbar). */
+  setBlockType: (type: WriteBlockType) => boolean
+}
+
+/** Block type of the current selection, walking outward from the cursor. */
+function richSelectionBlockType(state: EditorState): WriteBlockType {
+  const { $from } = state.selection
+  for (let depth = $from.depth; depth >= 0; depth -= 1) {
+    const node = $from.node(depth)
+    const name = node.type.name
+    if (name === 'heading') {
+      const level = Number(node.attrs.level) || 1
+      return level === 1 ? 'heading1' : level === 2 ? 'heading2' : 'heading3'
+    }
+    if (name === 'codeBlock') return 'code'
+    if (name === 'blockquote') return 'quote'
+    if (name === 'bulletList') return 'bullet'
+    if (name === 'orderedList') return 'ordered'
+  }
+  return 'paragraph'
 }
 
 type Props = {
@@ -167,6 +196,7 @@ export function selectionStateFromEditor(editor: Editor): WriteEditorSelectionSt
     text,
     ranges,
     charCount: ranges.reduce((total, range) => total + range.charCount, 0),
+    blockType: richSelectionBlockType(state),
     ...(rects.length > 0 ? { anchorRect: unionRects(rects) } : {})
   }
 }
@@ -428,6 +458,60 @@ export function WriteRichEditor({
           })
           if (record) onDocumentEditRef.current?.([record])
           return true
+        },
+        replaceImageBySrc: (src, replacementMarkdown) => {
+          const instance = editorRef.current
+          if (!instance || instance.isDestroyed) return false
+          let target: { from: number; to: number } | null = null
+          instance.state.doc.descendants((docNode, pos) => {
+            if (target) return false
+            if (docNode.type.name === 'image' && docNode.attrs.src === src) {
+              target = { from: pos, to: pos + docNode.nodeSize }
+              return false
+            }
+            return true
+          })
+          if (!target) return false
+          const { from, to } = target
+          return replaceRangeWithMarkdown(
+            instance.state,
+            (tr) => instance.view.dispatch(tr),
+            from,
+            to,
+            replacementMarkdown
+          )
+        },
+        toggleInlineFormat: (kind) => {
+          const instance = editorRef.current
+          if (!instance || instance.isDestroyed || readOnlyRef.current) return false
+          const chain = instance.chain().focus()
+          if (kind === 'bold') return chain.toggleBold().run()
+          if (kind === 'italic') return chain.toggleItalic().run()
+          if (kind === 'strikethrough') return chain.toggleStrike().run()
+          return chain.toggleCode().run()
+        },
+        setBlockType: (type) => {
+          const instance = editorRef.current
+          if (!instance || instance.isDestroyed || readOnlyRef.current) return false
+          const chain = instance.chain().focus()
+          switch (type) {
+            case 'heading1':
+              return chain.toggleHeading({ level: 1 }).run()
+            case 'heading2':
+              return chain.toggleHeading({ level: 2 }).run()
+            case 'heading3':
+              return chain.toggleHeading({ level: 3 }).run()
+            case 'quote':
+              return chain.toggleBlockquote().run()
+            case 'bullet':
+              return chain.toggleBulletList().run()
+            case 'ordered':
+              return chain.toggleOrderedList().run()
+            case 'code':
+              return chain.toggleCodeBlock().run()
+            default:
+              return chain.setParagraph().run()
+          }
         }
       }
     }

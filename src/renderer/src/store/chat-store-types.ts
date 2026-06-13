@@ -10,6 +10,7 @@ import type {
   ThreadTodoStatus,
   UserInputAnswer
 } from '../agent/types'
+import type { KunRuntimeStatusPayload } from '@shared/kun-gui-api'
 import type {
   ClawImAgentProfileV1,
   ClawImChannelV1,
@@ -77,10 +78,14 @@ export type SettingsRouteSection =
   | 'providers'
   | 'write'
   | 'imageGeneration'
+  | 'mediaGeneration'
+  | 'speechToText'
   | 'agents'
+  | 'permissions'
   | 'skill'
   | 'mcp'
   | 'shortcuts'
+  | 'easterEgg'
   | 'claw'
 export type AppRoute = 'chat' | 'write' | 'settings' | 'plugins' | 'claw' | 'schedule'
 export type PluginHostRoute = 'chat' | 'claw'
@@ -129,6 +134,7 @@ export type ChatState = {
   workspaceRoot: string
   workspaceLabel: string
   runtimeConnection: RuntimeConnectionStatus
+  runtimeStatus: KunRuntimeStatusPayload | null
   codeWorkspaceRoots: string[]
   threads: NormalizedThread[]
   threadSearch: string
@@ -201,7 +207,7 @@ export type ChatState = {
   openInitialSetup: (mode?: InitialSetupMode) => void
   closeInitialSetup: () => void
   boot: () => Promise<void>
-  probeRuntime: (mode?: 'user' | 'background') => Promise<void>
+  probeRuntime: (mode?: 'user' | 'background', options?: { restart?: boolean }) => Promise<void>
   chooseWorkspace: (options?: { createThreadAfter?: boolean; selectThreadAfter?: boolean }) => Promise<string | null>
   clearWorkspace: () => Promise<void>
   deleteWorkspace: (workspacePath: string) => Promise<void>

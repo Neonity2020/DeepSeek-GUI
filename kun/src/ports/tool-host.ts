@@ -16,6 +16,8 @@ export type ToolProviderKind =
   | 'gui'
   | 'delegation'
   | 'image'
+  | 'audio'
+  | 'video'
 
 export type ToolProviderPolicy = {
   id: string

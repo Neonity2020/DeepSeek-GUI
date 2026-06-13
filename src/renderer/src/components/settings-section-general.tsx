@@ -125,19 +125,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                   }
                 />
                 <SettingRow
-                  title={t('onboardingPreview')}
-                  description={t('onboardingPreviewDesc')}
-                  control={
-                    <button
-                      type="button"
-                      onClick={openOnboardingPreview}
-                      className="w-full rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
-                    >
-                      {t('onboardingPreviewOpen')}
-                    </button>
-                  }
-                />
-                <SettingRow
                   title={t('fontScale')}
                   description={t('fontScaleDesc')}
                   control={
@@ -154,16 +141,6 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                       <option value="medium">{t('fontScaleMedium')}</option>
                       <option value="large">{t('fontScaleLarge')}</option>
                     </select>
-                  }
-                />
-                <SettingRow
-                  title={t('turnCompleteNotification')}
-                  description={t('turnCompleteNotificationDesc')}
-                  control={
-                    <Toggle
-                      checked={form.notifications.turnComplete}
-                      onChange={(v) => update({ notifications: { turnComplete: v } })}
-                    />
                   }
                 />
                 <SettingRow
@@ -251,6 +228,16 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                     />
                   }
                 />
+                <SettingRow
+                  title={t('turnCompleteNotification')}
+                  description={t('turnCompleteNotificationDesc')}
+                  control={
+                    <Toggle
+                      checked={form.notifications.turnComplete}
+                      onChange={(v) => update({ notifications: { turnComplete: v } })}
+                    />
+                  }
+                />
               </SettingsCard>
 
               <SettingsCard title={t('guiUpdate')} className="mt-6">
@@ -289,6 +276,19 @@ export function GeneralSettingsSection({ ctx }: { ctx: Record<string, any> }): R
                       onInstall={installGuiUpdate}
                       t={t}
                     />
+                  }
+                />
+                <SettingRow
+                  title={t('onboardingPreview')}
+                  description={t('onboardingPreviewDesc')}
+                  control={
+                    <button
+                      type="button"
+                      onClick={openOnboardingPreview}
+                      className="w-full rounded-xl border border-ds-border bg-ds-card px-3 py-2 text-[14px] font-medium text-ds-ink shadow-sm transition hover:bg-ds-hover"
+                    >
+                      {t('onboardingPreviewOpen')}
+                    </button>
                   }
                 />
               </SettingsCard>

@@ -24,6 +24,8 @@ import {
   initialWriteMarkdownImageSrc,
   loadWriteMarkdownImage
 } from '../../write/markdown-image'
+import { parsePendingInfographicId } from '../../write/infographic-pending'
+import { createInfographicPendingElement } from '../../write/infographic-pending-dom'
 import {
   highlightCodeHtml,
   renderFallbackCodeHtml
@@ -42,6 +44,17 @@ type Props = {
   previewErrorMessage?: string
 }
 
+type MarkdownAstNode = {
+  type?: string
+  url?: unknown
+  identifier?: unknown
+  children?: MarkdownAstNode[]
+  data?: {
+    hProperties?: Record<string, unknown>
+    [key: string]: unknown
+  }
+}
+
 type CodeProps = DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
   node?: { tagName?: string }
 }
@@ -57,6 +70,49 @@ const rehypePlugins = [
     harden,
     writeMarkdownHardenOptions
   ]
+] as unknown as PluggableList
+
+function visitMarkdownAst(node: MarkdownAstNode, visitor: (node: MarkdownAstNode) => void): void {
+  visitor(node)
+  for (const child of node.children ?? []) {
+    visitMarkdownAst(child, visitor)
+  }
+}
+
+function setRawImageSource(node: MarkdownAstNode, rawSrc: string): void {
+  node.data = {
+    ...node.data,
+    hProperties: {
+      ...node.data?.hProperties,
+      'data-raw-src': rawSrc
+    }
+  }
+}
+
+export function preserveRawMarkdownImageSrc() {
+  return (tree: MarkdownAstNode): void => {
+    const definitions = new Map<string, string>()
+    visitMarkdownAst(tree, (node) => {
+      if (node.type === 'definition' && typeof node.identifier === 'string' && typeof node.url === 'string') {
+        definitions.set(node.identifier.toLowerCase(), node.url)
+      }
+    })
+    visitMarkdownAst(tree, (node) => {
+      if (node.type === 'image' && typeof node.url === 'string') {
+        setRawImageSource(node, node.url)
+        return
+      }
+      if (node.type === 'imageReference' && typeof node.identifier === 'string') {
+        const rawSrc = definitions.get(node.identifier.toLowerCase())
+        if (rawSrc) setRawImageSource(node, rawSrc)
+      }
+    })
+  }
+}
+
+const remarkPlugins = [
+  remarkGfm,
+  preserveRawMarkdownImageSrc
 ] as unknown as PluggableList
 
 const LANGUAGE_REGEX = /language-([^\s]+)/
@@ -254,23 +310,41 @@ type ResolvedMarkdownImageProps = {
   src?: string
   alt?: string | null
   filePath?: string | null
+  'data-raw-src'?: string
 } & Omit<ComponentPropsWithoutRef<'img'>, 'src' | 'alt'>
+
+function PendingInfographicFigure({ id }: { id: string }): ReactElement {
+  const hostRef = useRef<HTMLSpanElement | null>(null)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    host.replaceChildren(createInfographicPendingElement(id))
+    return () => host.replaceChildren()
+  }, [id])
+
+  return <span ref={hostRef} className="block" />
+}
 
 function ResolvedMarkdownImage({
   src,
   alt,
   filePath,
+  'data-raw-src': rawSrc,
   ...props
 }: ResolvedMarkdownImageProps): ReactElement {
-  const [resolvedSrc, setResolvedSrc] = useState(() => initialWriteMarkdownImageSrc(src, filePath))
+  const imageSrc = rawSrc ?? src
+  const pendingId = parsePendingInfographicId(imageSrc)
+  const [resolvedSrc, setResolvedSrc] = useState(() => initialWriteMarkdownImageSrc(imageSrc, filePath))
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (pendingId !== null) return undefined
     let cancelled = false
     setLoadError(null)
-    setResolvedSrc(initialWriteMarkdownImageSrc(src, filePath))
+    setResolvedSrc(initialWriteMarkdownImageSrc(imageSrc, filePath))
 
-    void loadWriteMarkdownImage(src, filePath)
+    void loadWriteMarkdownImage(imageSrc, filePath)
       .then((result) => {
         if (cancelled) return
         if (result.ok) {
@@ -283,7 +357,11 @@ function ResolvedMarkdownImage({
     return () => {
       cancelled = true
     }
-  }, [src, filePath])
+  }, [imageSrc, filePath, pendingId])
+
+  if (pendingId !== null) {
+    return <PendingInfographicFigure id={pendingId} />
+  }
 
   if (loadError) {
     return (
@@ -291,7 +369,18 @@ function ResolvedMarkdownImage({
         className="inline-flex max-w-full items-center rounded-lg border border-red-200/70 bg-red-50/80 px-2 py-1 text-[12px] text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
         title={loadError}
       >
-        {alt || src || 'Image could not be loaded'}
+        {alt || imageSrc || 'Image could not be loaded'}
+      </span>
+    )
+  }
+
+  if (!resolvedSrc) {
+    return (
+      <span
+        className="inline-flex max-w-full items-center rounded-lg border border-ds-border px-2 py-1 text-[12px] text-ds-muted"
+        title={imageSrc}
+      >
+        {alt || imageSrc || 'Image'}
       </span>
     )
   }
@@ -351,7 +440,7 @@ function WriteMarkdownPreviewContent({ content, isMarkdown, filePath }: Props): 
   return (
     <div className="ds-markdown write-markdown-preview min-h-full text-ds-ink">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={{
           a: ({ href, children, ...props }): ReactNode => (

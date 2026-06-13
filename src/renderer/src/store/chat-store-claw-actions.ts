@@ -337,7 +337,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
         set({ clawChannels: channels, activeClawChannelId: '' })
         return
       }
-      set({ route: 'claw', clawChannels: channels, activeClawChannelId: channel.id, composerModel: channel.model })
+      set({ route: 'claw', clawChannels: channels, activeClawChannelId: channel.id })
       const provider = getProvider()
       const latestConversation =
         [...channel.conversations]
@@ -378,7 +378,6 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
             ...clearedThreadSelection(),
             route: 'claw',
             activeClawChannelId: channel.id,
-            composerModel: channel.model,
             error: null
           })
           return
@@ -449,8 +448,7 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       set({
         route: 'claw',
         clawChannels: channels,
-        activeClawChannelId: channel.id,
-        composerModel: channel.model
+        activeClawChannelId: channel.id
       })
       const provider = getProvider()
       const workspaceRoot = normalizeWorkspaceRoot(
@@ -606,7 +604,6 @@ export function createClawActions(options: CreateClawActionsOptions): Pick<
       const saved = await rendererRuntimeClient.setSettings({ claw: { channels } })
       set({
         clawChannels: saved.claw.channels,
-        composerModel: normalized,
         error: i18n.t('common:clawModelChanged', { model: normalized })
       })
     }

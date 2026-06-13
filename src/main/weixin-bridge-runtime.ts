@@ -954,8 +954,8 @@ async function monitorWeixinAccount(accountId: string, signal: AbortSignal): Pro
           contextToken
         })
       }
-      // Generated files (e.g. generate_image output) arrive alongside the
-      // text reply and go out as native image / file messages.
+      // Generated media files arrive alongside the text reply and go out as
+      // native image / file messages.
       await sendGeneratedFilesWeixin(account, to, webhookGeneratedFiles(result), contextToken)
     }
     const chained = (senderChains.get(to) ?? Promise.resolve())
