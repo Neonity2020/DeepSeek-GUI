@@ -245,6 +245,16 @@ export type SseEventPayload = { streamId: string; events: unknown[] }
 export type SseEndPayload = { streamId: string }
 export type SseErrorPayload = { streamId: string; status?: number; message?: string }
 
+export type ComputerUsePermissionKind = 'accessibility' | 'screenRecording'
+export type ComputerUsePermissionState = 'granted' | 'denied' | 'unknown'
+export type ComputerUsePermissions = {
+  platform: string
+  supported: boolean
+  needsPermission: boolean
+  accessibility: ComputerUsePermissionState
+  screenRecording: ComputerUsePermissionState
+}
+
 export type KunGuiApi = {
   platform: string
   getSettings: () => Promise<AppSettingsV1>
@@ -405,6 +415,10 @@ export type KunGuiApi = {
   ) => Promise<ScheduleTaskFromTextResult>
   runDesktopCommand: (command: DesktopCommand) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  getComputerUsePermissions: () => Promise<ComputerUsePermissions>
+  requestComputerUsePermission: (
+    kind: ComputerUsePermissionKind
+  ) => Promise<ComputerUsePermissions>
   showTurnCompleteNotification: (
     payload: TurnCompleteNotificationPayload
   ) => Promise<SystemNotificationResult>

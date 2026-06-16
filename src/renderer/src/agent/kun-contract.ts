@@ -227,6 +227,9 @@ export type CoreRuntimeCapabilityManifestJson = {
   videoGen?: CoreRuntimeCapabilityStateJson & {
     model?: string
   }
+  computerUse?: CoreRuntimeCapabilityStateJson & {
+    mode?: 'auto' | 'always' | 'off'
+  }
 }
 
 export type CoreRuntimeInfoJson = {
