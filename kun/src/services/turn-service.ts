@@ -5,13 +5,19 @@ import type { RuntimeErrorSeverity } from '../contracts/errors.js'
 import type { SessionStore } from '../ports/session-store.js'
 import type { ThreadStore } from '../ports/thread-store.js'
 import type { IdGenerator } from '../ports/id-generator.js'
+import type { ModelClient } from '../ports/model-client.js'
+import type { ImmutablePrefix } from '../cache/immutable-prefix.js'
 import type { InflightTracker } from '../loop/inflight-tracker.js'
 import type { SteeringQueue } from '../loop/steering-queue.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
+import { summarizeCompactionWithModel } from '../loop/compaction-summary.js'
+import type { ContextCompactionConfig } from '../loop/model-context-profile.js'
 import { makeUserItem, makeErrorItem } from '../domain/item.js'
 import { appendTurnItem, createTurnRecord, finishTurn, replaceTurnItem, startTurn as startTurnRecord } from '../domain/turn.js'
 import { touchThread } from '../domain/thread.js'
 import type { RuntimeEventRecorder } from './runtime-event-recorder.js'
+import type { UsageService } from './usage-service.js'
+import { createImmutablePrefix } from '../cache/immutable-prefix.js'
 
 export type TurnServiceDeps = {
   threadStore: ThreadStore
@@ -20,6 +26,11 @@ export type TurnServiceDeps = {
   inflight: InflightTracker
   steering: SteeringQueue
   compactor: ContextCompactor
+  model?: ModelClient
+  usage?: UsageService
+  prefix?: ImmutablePrefix
+  defaultModel?: string
+  contextCompaction?: ContextCompactionConfig
   ids: IdGenerator
   nowIso: () => string
 }
@@ -144,21 +155,21 @@ export class TurnService {
     return { status: 'aborted' }
   }
 
-  async compact(input: { threadId: string; turnId?: string; request: CompactRequest }): Promise<CompactResponse> {
+  async compact(input: {
+    threadId: string
+    turnId?: string
+    request: CompactRequest
+    signal?: AbortSignal
+  }): Promise<CompactResponse> {
     const thread = await this.deps.threadStore.get(input.threadId)
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
     const turnId = input.turnId ?? thread.turns[thread.turns.length - 1]?.id ?? this.deps.ids.next('turn')
     const items = await this.deps.sessionStore.loadItems(input.threadId)
     const history = items.filter((item) => !this.isSystemOnly(item))
-    const prefix = {
-      systemPrompt: '',
-      tools: [],
-      pinnedConstraints: ['user: preserve recent turns'],
-      fewShots: [],
-      fingerprint: 'compact',
-      revision: 0
-    }
-    const result = this.deps.compactor.compact({
+    const prefix = this.deps.prefix ?? createImmutablePrefix({
+      pinnedConstraints: ['user: preserve recent turns']
+    })
+    let result = this.deps.compactor.compact({
       threadId: input.threadId,
       turnId,
       history,
@@ -174,8 +185,8 @@ export class TurnService {
     // the caller signals "nothing to compact" from the returned replacedTokens.
     if (result.replacedTokens > 0) {
       // Emit `started` before the persist so the live SSE stream shows a brief
-      // "正在压缩上下文" row; the appendItem I/O below separates it from the
-      // `completed` frame so the running state actually paints.
+      // "正在压缩上下文" row. In model-summary mode this also covers the
+      // extra summarizer request.
       await this.deps.events.record({
         kind: 'compaction_started',
         threadId: input.threadId,
@@ -183,6 +194,57 @@ export class TurnService {
         itemId: result.summaryItem.id,
         auto: false
       })
+      if (this.deps.contextCompaction?.summaryMode === 'model' && this.deps.model) {
+        const model = modelForManualCompaction({
+          threadModel: thread.model,
+          defaultModel: this.deps.defaultModel,
+          clientModel: this.deps.model.model
+        })
+        const modelSummary = await summarizeCompactionWithModel({
+          threadId: input.threadId,
+          turnId,
+          model,
+          modelClient: this.deps.model,
+          prefix,
+          contextCompaction: this.deps.contextCompaction,
+          items: history,
+          heuristicSummary: result.summaryItem.kind === 'compaction' ? result.summaryItem.summary : '',
+          signal: input.signal ?? new AbortController().signal,
+          recordUsage: async (usageSnapshot) => {
+            const usage = this.deps.usage?.record(input.threadId, usageSnapshot) ?? usageSnapshot
+            await this.deps.events.record({
+              kind: 'usage',
+              threadId: input.threadId,
+              turnId,
+              model,
+              usage
+            })
+          },
+          recordFallback: async (message) => {
+            await this.deps.events.record({
+              kind: 'error',
+              threadId: input.threadId,
+              turnId,
+              message,
+              code: 'compaction_summary_fallback',
+              severity: 'warning'
+            })
+          }
+        })
+        if (modelSummary) {
+          result = this.deps.compactor.compact({
+            threadId: input.threadId,
+            turnId,
+            history,
+            prefix,
+            budgetTokens: input.request.budgetTokens,
+            reason: input.request.reason,
+            auto: false,
+            summaryOverride: modelSummary,
+            summaryItemId: result.summaryItem.id
+          })
+        }
+      }
       // appendItem records the marker into the thread store (so the timeline
       // shows it on reload); the rewrite then collapses the *session* history to
       // "summary marker + recent verbatim tail" so the kept tail survives into
@@ -489,4 +551,17 @@ export class TurnService {
   private isSystemOnly(item: TurnItem): boolean {
     return item.kind === 'compaction' || item.kind === 'error'
   }
+}
+
+function modelForManualCompaction(input: {
+  threadModel?: string
+  defaultModel?: string
+  clientModel?: string
+}): string {
+  for (const candidate of [input.threadModel, input.defaultModel, input.clientModel]) {
+    const normalized = candidate?.trim()
+    if (!normalized || normalized.toLowerCase() === 'auto') continue
+    return normalized
+  }
+  return input.threadModel?.trim() || input.defaultModel?.trim() || input.clientModel?.trim() || ''
 }

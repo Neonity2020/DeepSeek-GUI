@@ -433,10 +433,6 @@ export async function syncGuiManagedKunConfig(
         ...attachments,
         enabled: attachments.enabled === false ? false : true
       },
-      memory: {
-        ...memory,
-        enabled: memory.enabled === false ? false : true
-      },
       web: {
         ...web,
         enabled: web.enabled === false ? false : true,

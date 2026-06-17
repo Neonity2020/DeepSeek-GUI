@@ -278,7 +278,7 @@ export function AgentsSettingsSection({ ctx }: { ctx: Record<string, any> }): Re
   const contextCompaction = kun.contextCompaction ?? {
     defaultSoftThreshold: 16000,
     defaultHardThreshold: 24000,
-    summaryMode: 'heuristic',
+    summaryMode: 'model',
     summaryTimeoutMs: 15000,
     summaryMaxTokens: 1200,
     summaryInputMaxBytes: 98304

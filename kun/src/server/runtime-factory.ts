@@ -146,16 +146,6 @@ export async function createKunServeRuntime(
       'system: keep the stable Kun prefix byte-stable for prompt-cache reuse'
     ]
   })
-  const turnService = new TurnService({
-    threadStore,
-    sessionStore,
-    events,
-    inflight,
-    steering,
-    compactor,
-    ids,
-    nowIso
-  })
   const threadService = new ThreadService({ threadStore, sessionStore, events, ids, nowIso })
   const modelProfiles = modelContextProfilesFromConfig({
     contextCompaction: options.contextCompaction,
@@ -174,18 +164,6 @@ export async function createKunServeRuntime(
       ? { streamIdleTimeoutMs: options.runtime.streamIdleTimeoutMs }
       : {})
   })
-  const reviewService = new ReviewService({
-    threadStore,
-    turns: turnService,
-    model: modelClient,
-    defaultModel: options.model,
-    nowIso,
-    modelCapabilities,
-    ...(options.models ? { models: options.models } : {}),
-    ...(options.contextCompaction ? { contextCompaction: options.contextCompaction } : {}),
-    ...(tokenEconomy ? { tokenEconomy } : {}),
-    ...(options.runtime ? { runtime: options.runtime } : {})
-  })
   // Independent I/O; all must still finish before the server listens.
   const [mcpProviders, skillRuntime] = await Promise.all([
     buildMcpToolProviders(options.capabilities?.mcp),
@@ -199,6 +177,33 @@ export async function createKunServeRuntime(
   if (skillCatalog) {
     prefix = setSystemPrompt(prefix, `${KUN_SYSTEM_PROMPT}\n\n${skillCatalog}`)
   }
+  const turnService = new TurnService({
+    threadStore,
+    sessionStore,
+    events,
+    inflight,
+    steering,
+    compactor,
+    model: modelClient,
+    usage: usageService,
+    prefix,
+    defaultModel: options.model,
+    contextCompaction: options.contextCompaction,
+    ids,
+    nowIso
+  })
+  const reviewService = new ReviewService({
+    threadStore,
+    turns: turnService,
+    model: modelClient,
+    defaultModel: options.model,
+    nowIso,
+    modelCapabilities,
+    ...(options.models ? { models: options.models } : {}),
+    ...(options.contextCompaction ? { contextCompaction: options.contextCompaction } : {}),
+    ...(tokenEconomy ? { tokenEconomy } : {}),
+    ...(options.runtime ? { runtime: options.runtime } : {})
+  })
   const webProviders = buildWebToolProviders(options.capabilities?.web)
   const attachmentStore = options.capabilities?.attachments.enabled
     ? new FileAttachmentStore({

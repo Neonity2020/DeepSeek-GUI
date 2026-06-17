@@ -564,6 +564,39 @@ describe('MessageTimeline Kun runtime metadata smoke', () => {
     expect(html).not.toContain('running timeline detail should stay collapsed')
   })
 
+  it('renders running compaction as a lightweight status divider', () => {
+    const blocks: ChatBlock[] = [
+      {
+        kind: 'compaction',
+        id: 'compact_1',
+        summary: 'Context compacted',
+        status: 'running',
+        auto: false
+      }
+    ]
+    useChatStore.setState({
+      busy: true,
+      currentTurnUserId: null,
+      turnStartedAtByUserId: {}
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        blocks,
+        liveReasoning: '',
+        live: '',
+        activeThreadId: 'thr_1',
+        runtimeConnection: 'ready',
+        onRetryConnection: () => undefined,
+        onOpenSettings: () => undefined
+      })
+    )
+
+    expect(html).toContain('role="status"')
+    expect(html).toMatch(/Compacting context|compactionRunning|正在压缩上下文/)
+    expect(html).not.toContain('aria-expanded=')
+  })
+
   it('keeps completed runtime errors visible instead of folding them into the work summary', () => {
     const blocks: ChatBlock[] = [
       {

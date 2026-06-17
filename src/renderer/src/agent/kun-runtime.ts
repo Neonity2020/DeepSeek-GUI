@@ -398,9 +398,9 @@ export class KunRuntimeProvider implements AgentProvider {
       throw runtimeErrorToError(readRuntimeError(response.body, 'compact thread failed'))
     }
     // Surface the folded token count so the UI can drop the context gauge
-    // immediately (a manual compact issues no model request, so no usage
-    // event would otherwise refresh it). Best-effort: a parse hiccup must
-    // not turn a successful compaction into a thrown error.
+    // immediately. Heuristic compaction has no usage event, and model-summary
+    // usage can arrive separately from the compact response. Best-effort: a
+    // parse hiccup must not turn a successful compaction into a thrown error.
     try {
       const body = readRuntimeJson<{ replacedTokens?: number }>(
         response.body,

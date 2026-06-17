@@ -149,6 +149,7 @@ export class ContextCompactor {
     mode?: CompactionMode
     reason?: string
     summaryOverride?: string
+    summaryItemId?: string
     frozenMessageCount?: number
     /** `false` marks a user-requested (`/compact`) compaction; omit for auto. */
     auto?: boolean
@@ -197,7 +198,7 @@ export class ContextCompactor {
     })
     const summary = appendDigestMarker(summaryBase, digestMarker)
     const summaryItem = makeCompactionItem({
-      id: `compaction_${input.turnId}_${Date.now()}`,
+      id: input.summaryItemId ?? `compaction_${input.turnId}_${Date.now()}`,
       turnId: input.turnId,
       threadId: input.threadId,
       summary,
