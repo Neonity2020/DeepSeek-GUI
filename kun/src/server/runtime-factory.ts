@@ -420,6 +420,9 @@ export async function createKunServeRuntime(
     runTurn(threadId, turnId) {
       return loop.runTurn(threadId, turnId)
     },
+    resumeInterruptedGoals(threadIds) {
+      return loop.resumeInterruptedGoals(threadIds)
+    },
     runReview(input) {
       return reviewService.runReview(input)
     },
@@ -462,6 +465,7 @@ export async function createKunServeRuntime(
     skills: () => skillRuntime.diagnostics(),
     shutdown: async () => {
       try {
+        loop.shutdownGoalResume()
         await mcpProviders.close()
       } finally {
         await stores.shutdown?.()
@@ -549,12 +553,20 @@ export async function startKunServe(
     port: options.port
   })
   // Background sweep after listen: settle turns orphaned by a crash so
-  // clients stop spinning on them, without delaying readiness.
+  // clients stop spinning on them, without delaying readiness. Then resume
+  // goals that were interrupted mid-run so an active goal doesn't sit "in
+  // progress" forever with nothing running (KunAgent/Kun#370).
   void runtime.turnService
     .reconcileOrphanedTurns()
-    .then((count) => {
-      if (count > 0) {
-        console.warn(`[kun] marked ${count} orphaned turn(s) as failed after restart`)
+    .then(async (threadIds) => {
+      if (threadIds.length > 0) {
+        console.warn(`[kun] marked orphaned turn(s) on ${threadIds.length} thread(s) as failed after restart`)
+      }
+      if (threadIds.length > 0 && runtime.resumeInterruptedGoals) {
+        const resumed = await runtime.resumeInterruptedGoals(threadIds)
+        if (resumed > 0) {
+          console.warn(`[kun] auto-resumed ${resumed} interrupted goal(s) after restart`)
+        }
       }
     })
     .catch((error) => {

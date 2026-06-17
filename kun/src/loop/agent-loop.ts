@@ -77,6 +77,11 @@ import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
 import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal-tools.js'
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
+import {
+  GoalResumeCoordinator,
+  DEFAULT_MAX_GOAL_RESUME_NO_PROGRESS_ATTEMPTS,
+  type GoalResumeCoordinatorDeps
+} from './goal-resume-coordinator.js'
 
 const PARALLEL_READ_ONLY_TOOL_NAMES = new Set(['read', 'grep', 'find', 'ls'])
 const DELEGATE_TASK_TOOL_NAME = 'delegate_task'
@@ -86,6 +91,39 @@ const MAX_PARALLEL_TOOL_CALLS = 3
 // N images"), bounding context growth for long computer-use sessions.
 const MAX_FORWARDED_TOOL_IMAGES = 3
 const MAX_TURN_MODEL_STEPS = 64
+
+/**
+ * Tools that, on their own, do not count as "progress" toward a goal when
+ * deciding whether to keep auto-resuming after a failed goal turn. A turn
+ * that only inspects/updates goal state (and then fails) made no real
+ * advancement, so it should burn the no-progress budget; a turn that edits
+ * files, runs commands, advances todos, etc. resets it.
+ */
+const GOAL_NON_PROGRESS_TOOL_NAMES = new Set<string>([
+  GET_GOAL_TOOL_NAME,
+  UPDATE_GOAL_TOOL_NAME
+])
+
+/**
+ * Prompt seeded into an auto-resumed goal continuation turn. The active-goal
+ * continuation instruction is injected separately (the goal is still
+ * `active`); this user message just nudges the model to pick the work back up
+ * where the interrupted turn left off.
+ */
+const GOAL_RESUME_PROMPT = [
+  'Continue working toward the active goal.',
+  'The previous attempt was interrupted before the goal was complete (it failed or the runtime restarted).',
+  'Review the current state, pick up where the work left off, and keep going until the goal is genuinely achieved or blocked.'
+].join(' ')
+
+/**
+ * Stable identity for the resume coordinator. Changing the objective (or
+ * starting a brand-new goal) yields a new key, so a pending backoff resume
+ * for an old goal is discarded rather than relaunched against the new one.
+ */
+function goalResumeKey(threadId: string, goal: ThreadGoal): string {
+  return `${threadId}::${goal.createdAt}::${goal.objective}`
+}
 const MAX_TOOL_CATALOG_SNAPSHOTS = 256
 const DEFAULT_COMPACTION_SUMMARY_TIMEOUT_MS = 15_000
 const DEFAULT_COMPACTION_SUMMARY_MAX_TOKENS = 1_200
@@ -406,6 +444,15 @@ export type AgentLoopOptions = {
     maxStringBytes?: number
   }
   /**
+   * Tuning + test seams for goal auto-resume (KunAgent/Kun#370). Defaults
+   * back off exponentially and bound consecutive no-progress retries; tests
+   * inject a synchronous timer and small caps for determinism.
+   */
+  goalResume?: Pick<
+    GoalResumeCoordinatorDeps,
+    'setTimer' | 'maxNoProgressAttempts' | 'baseDelayMs' | 'maxDelayMs' | 'log'
+  >
+  /**
    * Hard allow-list intersected into every tool context for this loop. Used
    * by read-only subagents to clamp the inherited tool host to investigation
    * tools — enforced at both the schema (listTools) and execute layers.
@@ -460,9 +507,41 @@ export class AgentLoop {
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
   private readonly turnFailures = new Map<string, TurnFailure>()
+  /** Turns that executed at least one real (non-goal-status) tool call. */
+  private readonly turnMadeProgress = new Set<string>()
+  private readonly goalResume: GoalResumeCoordinator
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
+    this.goalResume = new GoalResumeCoordinator({
+      launch: (threadId) => this.launchGoalResumeTurn(threadId),
+      getActiveGoalKey: async (threadId) => {
+        const goal = (await this.opts.threadStore.get(threadId))?.goal
+        return goal && goal.status === 'active' ? goalResumeKey(threadId, goal) : null
+      },
+      isThreadBusy: async (threadId) =>
+        (await this.opts.threadStore.get(threadId))?.status === 'running',
+      ...this.opts.goalResume
+    })
+  }
+
+  /** Cancel any pending goal auto-resume timers (called on runtime shutdown). */
+  shutdownGoalResume(): void {
+    this.goalResume.shutdown()
+  }
+
+  /**
+   * Resume goals stranded by a runtime restart (path A). `threadIds` are the
+   * threads whose in-flight turn was just reconciled to `failed`; only those
+   * with a still-`active` goal are relaunched, so dormant goals on unrelated
+   * threads are never auto-started on boot.
+   */
+  async resumeInterruptedGoals(threadIds: readonly string[]): Promise<number> {
+    let resumed = 0
+    for (const threadId of threadIds) {
+      if (await this.goalResume.resumeInterrupted(threadId)) resumed += 1
+    }
+    return resumed
   }
 
   /**
@@ -556,10 +635,14 @@ export class AgentLoop {
       return 'failed'
     } finally {
       await this.finishGoalElapsedTimer(threadId, goalTimer)
+      // Decide cross-turn goal resume before clearing the per-turn progress
+      // marker it reads.
+      await this.evaluateGoalResume(threadId, turnId, finalStatus ?? 'failed')
       this.autoModelRoutes.delete(autoModelRouteKey(threadId, turnId))
       this.toolStormBreakers.delete(turnId)
       this.lastNoToolTextByTurn.delete(turnId)
       this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+      this.turnMadeProgress.delete(turnId)
       this.turnFailures.delete(turnId)
       await this.runTurnEndHooks(threadId, turnId, finalStatus ?? 'failed', finalError)
     }
@@ -717,6 +800,104 @@ export class AgentLoop {
       threadId,
       goal
     })
+  }
+
+  /**
+   * Decide whether to auto-resume the goal after a turn settles (path B).
+   *
+   * Only failed, non-plan turns on a still-`active` goal are resumed: a model
+   * step-budget stop or a model/network/tool error left the goal "in
+   * progress" with nothing running (KunAgent/Kun#370). Deliberate stops
+   * (`completed`: the goal-repetition guard or a cost-budget block) and user
+   * interrupts / shutdown (`aborted`) are never relaunched. When the
+   * consecutive no-progress budget is exhausted the goal is moved to
+   * `blocked` so the banner reflects reality.
+   */
+  private async evaluateGoalResume(
+    threadId: string,
+    turnId: string,
+    finalStatus: 'completed' | 'failed' | 'aborted'
+  ): Promise<void> {
+    const thread = await this.opts.threadStore.get(threadId)
+    const goal = thread?.goal
+    if (!thread || !goal || goal.status !== 'active') {
+      this.goalResume.clear(threadId)
+      return
+    }
+    const turn = thread.turns.find((t) => t.id === turnId)
+    const wasPlanTurn = turn?.mode === 'plan' || Boolean(turn?.guiPlan)
+    if (finalStatus !== 'failed' || wasPlanTurn) {
+      this.goalResume.clear(threadId)
+      return
+    }
+    const outcome = this.goalResume.noteGoalTurnFailed({
+      threadId,
+      goalKey: goalResumeKey(threadId, goal),
+      madeProgress: this.turnMadeProgress.has(turnId)
+    })
+    if (outcome === 'exhausted') {
+      await this.transitionGoalStatus(
+        threadId,
+        turnId,
+        'blocked',
+        `Goal auto-resume stopped: ${DEFAULT_MAX_GOAL_RESUME_NO_PROGRESS_ATTEMPTS} consecutive attempts made no progress. Set the goal active again to retry.`
+      )
+    }
+  }
+
+  /** Start and drive a fresh continuation turn for the thread's active goal. */
+  private async launchGoalResumeTurn(threadId: string): Promise<void> {
+    const thread = await this.opts.threadStore.get(threadId)
+    const goal = thread?.goal
+    if (!thread || !goal || goal.status !== 'active') return
+    // Inherit headless/IM gating from the most recent turn so a resumed turn
+    // doesn't deadlock awaiting user input that will never arrive.
+    const lastTurn = thread.turns[thread.turns.length - 1]
+    const started = await this.opts.turns.startTurn({
+      threadId,
+      request: {
+        prompt: GOAL_RESUME_PROMPT,
+        mode: 'agent',
+        ...(lastTurn?.disableUserInput ? { disableUserInput: true } : {})
+      }
+    })
+    await this.opts.events.record({
+      kind: 'error',
+      threadId,
+      turnId: started.turnId,
+      message: 'Auto-resuming the active goal after an interrupted turn.',
+      code: 'goal_auto_resume',
+      severity: 'warning'
+    })
+    // Fire-and-forget: the new turn drives its own lifecycle and re-enters
+    // evaluateGoalResume when it settles.
+    void this.runTurn(threadId, started.turnId)
+  }
+
+  /** Move a goal out of `active` (e.g. to `blocked`) and surface why. */
+  private async transitionGoalStatus(
+    threadId: string,
+    turnId: string,
+    status: ThreadGoal['status'],
+    message?: string
+  ): Promise<void> {
+    const current = await this.opts.threadStore.get(threadId)
+    const goal = current?.goal
+    if (!current || !goal || goal.status === status) return
+    const now = this.opts.nowIso()
+    const next: ThreadGoal = { ...goal, status, updatedAt: now }
+    await this.opts.threadStore.upsert(touchThread({ ...current, goal: next }, now))
+    await this.opts.events.record({ kind: 'goal_updated', threadId, goal: next })
+    if (message) {
+      await this.opts.events.record({
+        kind: 'error',
+        threadId,
+        turnId,
+        message,
+        code: 'goal_auto_resume_exhausted',
+        severity: 'warning'
+      })
+    }
   }
 
   private async drainSteering(threadId: string, turnId: string, signal: AbortSignal): Promise<void> {
@@ -1393,6 +1574,11 @@ export class AgentLoop {
     const context = this.createToolContext(input)
     let index = 0
     let executedAny = false
+    const markProgress = (toolName: string): void => {
+      if (!GOAL_NON_PROGRESS_TOOL_NAMES.has(toolName)) {
+        this.turnMadeProgress.add(input.turnId)
+      }
+    }
 
     while (index < input.calls.length) {
       if (input.signal.aborted) return 'aborted'
@@ -1420,6 +1606,7 @@ export class AgentLoop {
           context
         })
         executedAny = true
+        markProgress(call.toolName)
         await this.persistToolCallResult(input.threadId, input.turnId, call, result)
         index += 1
         continue
@@ -1467,6 +1654,7 @@ export class AgentLoop {
         const batchCall = batch[batchIndex]
         if (!result || !batchCall) continue
         if (result.status === 'rejected') throw result.reason
+        markProgress(batchCall.toolName)
         await this.persistToolCallResult(input.threadId, input.turnId, batchCall, result.value)
       }
 

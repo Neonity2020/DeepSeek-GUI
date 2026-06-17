@@ -264,10 +264,13 @@ export class TurnService {
    * so clients stop waiting on them after a crash or restart. Turns
    * owned by this process (inflight) are skipped, so the sweep is safe
    * to run in the background after the server starts listening.
+   *
+   * Returns the ids of threads that had at least one turn reconciled, so the
+   * caller can resume goals that were interrupted mid-run (KunAgent/Kun#370).
    */
-  async reconcileOrphanedTurns(): Promise<number> {
+  async reconcileOrphanedTurns(): Promise<string[]> {
     const summaries = await this.deps.threadStore.list()
-    let reconciled = 0
+    const reconciledThreadIds = new Set<string>()
     for (const summary of summaries) {
       const thread = await this.deps.threadStore.get(summary.id).catch(() => null)
       if (!thread) continue
@@ -283,13 +286,13 @@ export class TurnService {
             code: 'orphaned_after_restart',
             severity: 'warning'
           })
-          reconciled += 1
+          reconciledThreadIds.add(thread.id)
         } catch {
           // Best-effort sweep; one unreadable thread must not stop the rest.
         }
       }
     }
-    return reconciled
+    return [...reconciledThreadIds]
   }
 
   async getTurn(threadId: string, turnId: string): Promise<Turn | null> {
