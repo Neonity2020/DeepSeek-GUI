@@ -8,7 +8,9 @@ import type {
   ModelProviderModelProfileV1,
   ScheduleRunResult,
   ScheduleRuntimeStatus,
-  ScheduleTaskFromTextResult
+  ScheduleTaskFromTextResult,
+  WorkflowRunResult,
+  WorkflowRuntimeStatus
 } from './app-settings'
 import type { EditorListResult, EditorOpenResult, OpenEditorPathOptions } from './editor'
 import type { GitBranchesResult } from './git-branches'
@@ -270,6 +272,10 @@ export type KunGuiApi = {
   runClawTask: (taskId: string) => Promise<ClawRunResult>
   getScheduleStatus: () => Promise<ScheduleRuntimeStatus>
   runScheduleTask: (taskId: string) => Promise<ScheduleRunResult>
+  getWorkflowStatus: () => Promise<WorkflowRuntimeStatus>
+  runWorkflow: (workflowId: string) => Promise<WorkflowRunResult>
+  stopWorkflow: (workflowId: string) => Promise<WorkflowRunResult>
+  runWorkflowNode: (workflowId: string, nodeId: string) => Promise<WorkflowRunResult>
   startClawImInstallQr: (
     provider: 'feishu' | 'weixin',
     options?: { isLark?: boolean }

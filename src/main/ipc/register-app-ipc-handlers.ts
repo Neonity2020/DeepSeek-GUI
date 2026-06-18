@@ -13,7 +13,9 @@ import {
   type ClawRuntimeStatus,
   type ScheduleRunResult,
   type ScheduleRuntimeStatus,
-  type ScheduleTaskFromTextResult
+  type ScheduleTaskFromTextResult,
+  type WorkflowRunResult,
+  type WorkflowRuntimeStatus
 } from '../../shared/app-settings'
 import type {
   ClawImInstallPollResult,
@@ -58,6 +60,7 @@ import {
   skillSaveFilePayloadSchema,
   settingsPatchSchema,
   streamIdSchema,
+  workflowRunNodePayloadSchema,
   uiPluginIdPayloadSchema,
   workspaceDirectoryCreatePayloadSchema,
   workspaceClipboardImageSavePayloadSchema,
@@ -85,6 +88,7 @@ import type { JsonSettingsStore } from '../settings-store'
 import { probeModelProvider } from '../provider-connection'
 import type { ClawRuntime } from '../claw-runtime'
 import type { ScheduleRuntime } from '../schedule-runtime'
+import type { WorkflowRuntime } from '../workflow-runtime'
 import { createAndSwitchGitBranch, getGitBranches, switchGitBranch } from '../services/git-service'
 import {
   abortMerge,
@@ -168,6 +172,7 @@ type RegisterAppIpcHandlersOptions = {
   fetchUpstreamModels: () => Promise<UpstreamModelsResult>
   getClawRuntime: () => ClawRuntime | null
   getScheduleRuntime: () => ScheduleRuntime | null
+  getWorkflowRuntime: () => WorkflowRuntime | null
   startFeishuInstallQrcode: (isLark: boolean) => Promise<ClawImInstallQrResult>
   pollFeishuInstall: (deviceCode: string) => Promise<ClawImInstallPollResult>
   startWeixinInstallQrcode: (weixinBridgeUrl?: string) => Promise<ClawImInstallQrResult>
@@ -344,6 +349,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     fetchUpstreamModels,
     getClawRuntime,
     getScheduleRuntime,
+    getWorkflowRuntime,
     startFeishuInstallQrcode,
     pollFeishuInstall,
     startWeixinInstallQrcode,
@@ -496,6 +502,35 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     const scheduleRuntime = getScheduleRuntime()
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
     return scheduleRuntime.runTask(normalizedTaskId)
+  })
+
+  ipcMain.handle('workflow:status', async (): Promise<WorkflowRuntimeStatus> =>
+    getWorkflowRuntime()?.status() ?? {
+      runningWorkflowIds: [],
+      nodeStatus: {},
+      powerSaveBlockerActive: false
+    }
+  )
+
+  ipcMain.handle('workflow:run', async (_, workflowId: unknown): Promise<WorkflowRunResult> => {
+    const normalizedId = parseIpcPayload('workflow:run', streamIdSchema, workflowId)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.runWorkflow(normalizedId)
+  })
+
+  ipcMain.handle('workflow:stop', async (_, workflowId: unknown): Promise<WorkflowRunResult> => {
+    const normalizedId = parseIpcPayload('workflow:stop', streamIdSchema, workflowId)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.stopWorkflow(normalizedId)
+  })
+
+  ipcMain.handle('workflow:node:run', async (_, payload: unknown): Promise<WorkflowRunResult> => {
+    const request = parseIpcPayload('workflow:node:run', workflowRunNodePayloadSchema, payload)
+    const workflowRuntime = getWorkflowRuntime()
+    if (!workflowRuntime) return { ok: false, message: 'Workflow runtime is not initialized.' }
+    return workflowRuntime.runSingleNode(request.workflowId, request.nodeId)
   })
 
   ipcMain.handle(

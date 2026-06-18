@@ -529,6 +529,207 @@ export type ScheduleSettingsV1 = {
   tasks: ScheduledTaskV1[]
 }
 
+// ---------------------------------------------------------------------------
+// Workflow (n8n-style node-based automation)
+//
+// A workflow is the multi-step generalization of a scheduled task: instead of a
+// single prompt it is a graph of nodes connected by edges. The "ai-agent" node
+// reuses the exact same Kun-runtime execution path as a scheduled task.
+// ---------------------------------------------------------------------------
+
+export type WorkflowNodeKind =
+  | 'manual-trigger'
+  | 'schedule-trigger'
+  | 'ai-agent'
+  | 'condition'
+  | 'http-request'
+  | 'delay'
+
+export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
+  'manual-trigger',
+  'schedule-trigger',
+  'ai-agent',
+  'condition',
+  'http-request',
+  'delay'
+]
+
+export type WorkflowRunStatus = 'idle' | 'running' | 'success' | 'error'
+export type WorkflowNodeRunStatus = 'pending' | 'running' | 'success' | 'error' | 'skipped'
+
+/** Schedule trigger extends the scheduled-task schedule kinds with cron. */
+export type WorkflowTriggerScheduleKind = ScheduleKind | 'cron'
+
+export type WorkflowScheduleV1 = {
+  kind: WorkflowTriggerScheduleKind
+  everyMinutes: number
+  timeOfDay: string
+  atTime: string
+  /** Cron expression, used when kind === 'cron'. */
+  cron: string
+}
+
+export type WorkflowConditionOperator =
+  | 'contains'
+  | 'notContains'
+  | 'equals'
+  | 'notEquals'
+  | 'startsWith'
+  | 'endsWith'
+  | 'isEmpty'
+  | 'isNotEmpty'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+
+export type WorkflowHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export type WorkflowManualTriggerConfigV1 = Record<string, never>
+
+export type WorkflowScheduleTriggerConfigV1 = {
+  schedule: WorkflowScheduleV1
+}
+
+export type WorkflowAiAgentConfigV1 = {
+  prompt: string
+  workspaceRoot: string
+  providerId: string
+  model: string
+  reasoningEffort: ScheduleReasoningEffort
+  mode: ScheduleRunMode
+}
+
+export type WorkflowConditionConfigV1 = {
+  /** Accessor into the incoming payload, e.g. "text" or "json.value". Empty = previous node's text. */
+  leftExpr: string
+  operator: WorkflowConditionOperator
+  rightValue: string
+  caseSensitive: boolean
+}
+
+export type WorkflowHttpHeaderV1 = {
+  key: string
+  value: string
+}
+
+export type WorkflowHttpRequestConfigV1 = {
+  method: WorkflowHttpMethod
+  url: string
+  headers: WorkflowHttpHeaderV1[]
+  /** Templated with {{json.x}} / {{text}} from the incoming payload. */
+  body: string
+  timeoutMs: number
+  /** Parse the response body as JSON into the payload for downstream nodes. */
+  parseJson: boolean
+}
+
+export type WorkflowDelayConfigV1 = {
+  delayMs: number
+}
+
+export type WorkflowNodeConfigByKind = {
+  'manual-trigger': WorkflowManualTriggerConfigV1
+  'schedule-trigger': WorkflowScheduleTriggerConfigV1
+  'ai-agent': WorkflowAiAgentConfigV1
+  condition: WorkflowConditionConfigV1
+  'http-request': WorkflowHttpRequestConfigV1
+  delay: WorkflowDelayConfigV1
+}
+
+/** Discriminated union over `type`, each kind carrying its own `config`. */
+export type WorkflowNodeV1 = {
+  [K in WorkflowNodeKind]: {
+    id: string
+    type: K
+    /** Display label shown on the canvas. */
+    name: string
+    /** React Flow canvas coordinates. Opaque to the backend. */
+    position: { x: number; y: number }
+    disabled: boolean
+    config: WorkflowNodeConfigByKind[K]
+  }
+}[WorkflowNodeKind]
+
+/** Flat edge array, binds directly to React Flow. Condition uses sourceHandle 'true' | 'false'. */
+export type WorkflowConnectionV1 = {
+  id: string
+  source: string
+  sourceHandle: string
+  target: string
+  targetHandle: string
+}
+
+export type WorkflowNodeRunResultV1 = {
+  nodeId: string
+  status: WorkflowNodeRunStatus
+  startedAt: string
+  finishedAt: string
+  /** Assistant text / HTTP body / condition branch summary. */
+  message: string
+  /** JSON payload this node emitted, serialized. Empty when none. */
+  outputJson: string
+  /** For ai-agent nodes: the Kun thread it created. */
+  threadId: string
+  error: string
+}
+
+export type WorkflowRunV1 = {
+  id: string
+  /** 'manual' | 'schedule' | trigger node id. */
+  trigger: string
+  status: WorkflowRunStatus
+  startedAt: string
+  finishedAt: string
+  message: string
+  nodeResults: WorkflowNodeRunResultV1[]
+}
+
+export type WorkflowV1 = {
+  id: string
+  name: string
+  enabled: boolean
+  nodes: WorkflowNodeV1[]
+  connections: WorkflowConnectionV1[]
+  createdAt: string
+  updatedAt: string
+  lastRunAt: string
+  nextRunAt: string
+  lastStatus: WorkflowRunStatus
+  lastMessage: string
+  /** Bounded history of recent runs (most recent last, capped). */
+  runs: WorkflowRunV1[]
+}
+
+export type WorkflowSettingsV1 = {
+  enabled: boolean
+  defaultWorkspaceRoot: string
+  /** Default model provider for new AI nodes. Empty inherits the Kun runtime provider. */
+  providerId?: string
+  model: string
+  mode: ScheduleRunMode
+  keepAwake: boolean
+  workflows: WorkflowV1[]
+}
+
+export type WorkflowSettingsPatchV1 = Partial<Omit<WorkflowSettingsV1, 'workflows'>> & {
+  /** Replaced wholesale when present. */
+  workflows?: Array<Partial<WorkflowV1>>
+}
+
+export type WorkflowRunResult =
+  | { ok: true; runId: string; status: WorkflowRunStatus; message: string }
+  | { ok: false; message: string }
+
+export type WorkflowNodeStatusMap = Record<string, WorkflowNodeRunStatus>
+
+export type WorkflowRuntimeStatus = {
+  runningWorkflowIds: string[]
+  /** workflowId -> nodeId -> live status, for lighting up the canvas during a run. */
+  nodeStatus: Record<string, WorkflowNodeStatusMap>
+  powerSaveBlockerActive: boolean
+}
+
 export type ClawSkillSettingsV1 = {
   defaultNames: string[]
   extraDirs: string[]
@@ -856,6 +1057,7 @@ export type AppSettingsV1 = {
   write: WriteSettingsV1
   claw: ClawSettingsV1
   schedule: ScheduleSettingsV1
+  workflow: WorkflowSettingsV1
   guiUpdate: GuiUpdateConfigV1
   codePromptPrefix: string
   /** User-disabled skill IDs. Disabled skills are hidden from command surfaces. */
@@ -863,7 +1065,7 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
@@ -874,5 +1076,6 @@ export type AppSettingsPatch = Partial<
   write?: WriteSettingsPatchV1
   claw?: ClawSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1
+  workflow?: WorkflowSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>
 }

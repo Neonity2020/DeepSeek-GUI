@@ -9,6 +9,7 @@ import {
   type ScheduleSettingsPatchV1,
   WINDOW_CLOSE_ACTIONS,
   type WindowCloseAction,
+  type WorkflowSettingsPatchV1,
   type WriteSettingsPatchV1
 } from './app-settings-types'
 import { normalizeKeyboardShortcuts, type KeyboardShortcutsConfigV1 } from './keyboard-shortcuts'
@@ -26,6 +27,7 @@ import {
 import { normalizeDeepseekBaseUrl } from './app-settings-normalizers'
 import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
+import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
@@ -40,6 +42,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     write?: WriteSettingsPatchV1
     claw?: ClawSettingsPatchV1
     schedule?: ScheduleSettingsPatchV1
+    workflow?: WorkflowSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
   }
   const providerSettings = normalizeModelProviderSettings(maybeSettings.provider)
@@ -88,6 +91,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     write: normalizeWriteSettings(maybeSettings.write),
     claw: normalizeClawSettings(maybeSettings.claw),
     schedule: normalizeScheduleSettings(maybeSettings.schedule),
+    workflow: normalizeWorkflowSettings(maybeSettings.workflow),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(
         maybeSettings.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL

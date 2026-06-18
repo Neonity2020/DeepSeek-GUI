@@ -19,6 +19,11 @@ const api = {
   getScheduleStatus: () => ipcRenderer.invoke('schedule:status'),
   runScheduleTask: (taskId) =>
     ipcRenderer.invoke('schedule:task:run', taskId),
+  getWorkflowStatus: () => ipcRenderer.invoke('workflow:status'),
+  runWorkflow: (workflowId) => ipcRenderer.invoke('workflow:run', workflowId),
+  stopWorkflow: (workflowId) => ipcRenderer.invoke('workflow:stop', workflowId),
+  runWorkflowNode: (workflowId, nodeId) =>
+    ipcRenderer.invoke('workflow:node:run', { workflowId, nodeId }),
   startClawImInstallQr: (provider, options) =>
     ipcRenderer.invoke('claw:im-install:qrcode', { provider, isLark: options?.isLark }),
   pollClawImInstall: (provider, deviceCode) =>

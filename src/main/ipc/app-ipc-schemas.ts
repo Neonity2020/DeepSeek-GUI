@@ -689,6 +689,175 @@ const scheduleSettingsPatchSchema = z.object({
   tasks: z.array(scheduledTaskPatchSchema).max(512).optional()
 }).strict()
 
+// --- Workflow (node-based automation) ---
+
+const workflowScheduleKindSchema = z.enum(['manual', 'interval', 'daily', 'at', 'cron'])
+const workflowConditionOperatorSchema = z.enum([
+  'contains',
+  'notContains',
+  'equals',
+  'notEquals',
+  'startsWith',
+  'endsWith',
+  'isEmpty',
+  'isNotEmpty',
+  'gt',
+  'gte',
+  'lt',
+  'lte'
+])
+const workflowHttpMethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+const workflowNodeRunStatusSchema = z.enum(['pending', 'running', 'success', 'error', 'skipped'])
+
+const workflowPositionSchema = z
+  .object({ x: z.number(), y: z.number() })
+  .strict()
+
+const workflowScheduleSchema = z
+  .object({
+    kind: workflowScheduleKindSchema.optional(),
+    everyMinutes: z.number().int().min(1).max(10_080).optional(),
+    timeOfDay: z.string().max(16).optional(),
+    atTime: z.string().max(128).optional(),
+    cron: z.string().max(256).optional()
+  })
+  .strict()
+
+const workflowAiAgentConfigSchema = z
+  .object({
+    prompt: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    workspaceRoot: defaultPathSchema,
+    providerId: z.string().trim().max(64).optional(),
+    model: optionalTrimmedString(128),
+    reasoningEffort: scheduleReasoningEffortSchema.optional(),
+    mode: clawRunModeSchema.optional()
+  })
+  .strict()
+
+const workflowConditionConfigSchema = z
+  .object({
+    leftExpr: z.string().max(2_000).optional(),
+    operator: workflowConditionOperatorSchema.optional(),
+    rightValue: z.string().max(4_000).optional(),
+    caseSensitive: z.boolean().optional()
+  })
+  .strict()
+
+const workflowHttpHeaderSchema = z
+  .object({
+    key: z.string().max(256),
+    value: z.string().max(4_000)
+  })
+  .strict()
+
+const workflowHttpRequestConfigSchema = z
+  .object({
+    method: workflowHttpMethodSchema.optional(),
+    url: z.string().max(MAX_URL_LENGTH).optional(),
+    headers: z.array(workflowHttpHeaderSchema).max(50).optional(),
+    body: z.string().max(MAX_BODY_BYTES).optional(),
+    timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+    parseJson: z.boolean().optional()
+  })
+  .strict()
+
+const workflowDelayConfigSchema = z
+  .object({ delayMs: z.number().int().min(0).max(86_400_000).optional() })
+  .strict()
+
+const workflowNodeBaseShape = {
+  id: z.string().max(MAX_ID_LENGTH),
+  name: z.string().max(512).optional(),
+  position: workflowPositionSchema.optional(),
+  disabled: z.boolean().optional()
+}
+
+const workflowNodePatchSchema = z.discriminatedUnion('type', [
+  z.object({ ...workflowNodeBaseShape, type: z.literal('manual-trigger'), config: z.object({}).strict().optional() }).strict(),
+  z
+    .object({
+      ...workflowNodeBaseShape,
+      type: z.literal('schedule-trigger'),
+      config: z.object({ schedule: workflowScheduleSchema.optional() }).strict().optional()
+    })
+    .strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('ai-agent'), config: workflowAiAgentConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('condition'), config: workflowConditionConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('http-request'), config: workflowHttpRequestConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('delay'), config: workflowDelayConfigSchema.optional() }).strict()
+])
+
+const workflowConnectionPatchSchema = z
+  .object({
+    id: z.string().max(MAX_ID_LENGTH).optional(),
+    source: z.string().max(MAX_ID_LENGTH),
+    sourceHandle: z.string().max(64).optional(),
+    target: z.string().max(MAX_ID_LENGTH),
+    targetHandle: z.string().max(64).optional()
+  })
+  .strict()
+
+const workflowNodeResultPatchSchema = z
+  .object({
+    nodeId: z.string().max(MAX_ID_LENGTH).optional(),
+    status: workflowNodeRunStatusSchema.optional(),
+    startedAt: z.string().max(128).optional(),
+    finishedAt: z.string().max(128).optional(),
+    message: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    outputJson: z.string().max(MAX_BODY_BYTES).optional(),
+    threadId: z.string().max(MAX_ID_LENGTH).optional(),
+    error: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
+  })
+  .strict()
+
+const workflowRunPatchSchema = z
+  .object({
+    id: z.string().max(MAX_ID_LENGTH).optional(),
+    trigger: z.string().max(128).optional(),
+    status: clawTaskStatusSchema.optional(),
+    startedAt: z.string().max(128).optional(),
+    finishedAt: z.string().max(128).optional(),
+    message: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    nodeResults: z.array(workflowNodeResultPatchSchema).max(200).optional()
+  })
+  .strict()
+
+const workflowPatchSchema = z
+  .object({
+    id: z.string().max(MAX_ID_LENGTH).optional(),
+    name: z.string().max(512).optional(),
+    enabled: z.boolean().optional(),
+    nodes: z.array(workflowNodePatchSchema).max(200).optional(),
+    connections: z.array(workflowConnectionPatchSchema).max(512).optional(),
+    createdAt: z.string().max(128).optional(),
+    updatedAt: z.string().max(128).optional(),
+    lastRunAt: z.string().max(128).optional(),
+    nextRunAt: z.string().max(128).optional(),
+    lastStatus: clawTaskStatusSchema.optional(),
+    lastMessage: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional(),
+    runs: z.array(workflowRunPatchSchema).max(50).optional()
+  })
+  .strict()
+
+const workflowSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    defaultWorkspaceRoot: defaultPathSchema,
+    providerId: z.string().trim().max(64).optional(),
+    model: optionalTrimmedString(128),
+    mode: clawRunModeSchema.optional(),
+    keepAwake: z.boolean().optional(),
+    workflows: z.array(workflowPatchSchema).max(200).optional()
+  })
+  .strict()
+
+export const workflowRunNodePayloadSchema = z
+  .object({
+    workflowId: trimmedString(MAX_ID_LENGTH),
+    nodeId: trimmedString(MAX_ID_LENGTH)
+  })
+  .strict()
+
 function stripLegacySettingsPatchKeys(payload: unknown): unknown {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return payload
   const source = payload as Record<string, unknown>
@@ -728,6 +897,7 @@ const settingsPatchObjectSchema = z.object({
   write: writeSettingsPatchSchema.optional(),
   claw: clawSettingsPatchSchema.optional(),
   schedule: scheduleSettingsPatchSchema.optional(),
+  workflow: workflowSettingsPatchSchema.optional(),
   guiUpdate: z.object({
     channel: z.enum(GUI_UPDATE_CHANNELS).optional()
   }).strict().optional(),
