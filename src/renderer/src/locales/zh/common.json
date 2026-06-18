@@ -66,6 +66,7 @@
   "workflowName": "名称",
   "workflowNamePlaceholder": "给工作流起个名字",
   "workflowEnabled": "已启用",
+  "workflowCallableByAgent": "允许 AI 调用（run_workflow 工具）",
   "workflowLastRun": "上次运行",
   "workflowNextRun": "下次运行",
   "workflowNeverRun": "从未",

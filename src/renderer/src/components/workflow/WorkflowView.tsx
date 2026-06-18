@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Play, Plus, Power, Trash2, Workflow as WorkflowIcon } from 'lucide-react'
+import { Bot, Pencil, Play, Plus, Power, Trash2, Workflow as WorkflowIcon } from 'lucide-react'
 import {
   mergeWorkflowSettings,
   normalizeWorkflowSettings,
@@ -152,6 +152,17 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
       await persist(
         workflows.map((workflow) =>
           workflow.id === id ? { ...workflow, enabled, updatedAt: new Date().toISOString() } : workflow
+        )
+      )
+    },
+    [persist, workflows]
+  )
+
+  const handleToggleCallable = useCallback(
+    async (id: string, callableByAgent: boolean): Promise<void> => {
+      await persist(
+        workflows.map((workflow) =>
+          workflow.id === id ? { ...workflow, callableByAgent, updatedAt: new Date().toISOString() } : workflow
         )
       )
     },
@@ -321,6 +332,19 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleCallable(workflow.id, !workflow.callableByAgent)}
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                            workflow.callableByAgent
+                              ? 'border-accent/40 bg-accent/10 text-accent'
+                              : 'border-ds-border text-ds-muted hover:bg-ds-hover'
+                          }`}
+                          title={t('workflowCallableByAgent')}
+                          aria-label={t('workflowCallableByAgent')}
+                        >
+                          <Bot className="h-4 w-4" strokeWidth={1.8} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => void handleToggleEnabled(workflow.id, !workflow.enabled)}

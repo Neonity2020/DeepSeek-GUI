@@ -557,7 +557,9 @@ describe('syncGuiManagedKunConfig', () => {
         '--base-url',
         'http://127.0.0.1:9788',
         '--secret',
-        'top-secret'
+        'top-secret',
+        '--workflow-base-url',
+        'http://127.0.0.1:8799'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'
@@ -901,7 +903,9 @@ describe('syncGuiManagedKunConfig', () => {
         '/tmp/deepseek-gui-test-app/out/main/claw-schedule-mcp-node-entry.js',
         '--gui-schedule-mcp-server',
         '--base-url',
-        'http://127.0.0.1:8788'
+        'http://127.0.0.1:8788',
+        '--workflow-base-url',
+        'http://127.0.0.1:8799'
       ],
       env: {
         ELECTRON_RUN_AS_NODE: '1'

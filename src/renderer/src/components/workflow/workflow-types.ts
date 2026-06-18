@@ -222,6 +222,7 @@ export function createWorkflow(name: string): WorkflowV1 {
     id: uid('workflow'),
     name,
     enabled: false,
+    callableByAgent: false,
     nodes: [trigger],
     connections: [],
     createdAt: now,

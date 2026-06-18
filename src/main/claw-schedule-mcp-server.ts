@@ -5,6 +5,8 @@ import { z } from 'zod'
 type McpLaunchOptions = {
   baseUrl: string
   secret: string
+  workflowBaseUrl: string
+  workflowSecret: string
 }
 
 function parseArgValue(argv: string[], flag: string): string {
@@ -17,11 +19,13 @@ function parseLaunchOptions(argv: string[]): McpLaunchOptions | null {
   if (!argv.includes('--gui-schedule-mcp-server') && !argv.includes('--claw-schedule-mcp-server')) return null
   const baseUrl = parseArgValue(argv, '--base-url').trim() || 'http://127.0.0.1:8787'
   const secret = parseArgValue(argv, '--secret').trim()
-  return { baseUrl, secret }
+  const workflowBaseUrl = parseArgValue(argv, '--workflow-base-url').trim()
+  const workflowSecret = parseArgValue(argv, '--workflow-secret').trim()
+  return { baseUrl, secret, workflowBaseUrl, workflowSecret }
 }
 
 async function postJson(
-  options: McpLaunchOptions,
+  options: { baseUrl: string; secret: string },
   path: string,
   body: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
@@ -238,6 +242,57 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   // The `gui_plan_create` MCP tool has been retired in favour of the
   // native Kun `create_plan` tool. See RETIRED_CLAW_GUI_PLAN_TOOL_NAMES
   // for the list of removed tool names.
+
+  // Workflow tools — the same bridge exposes the GUI's node-based workflows that
+  // the user marked "callable by agent", by calling the WorkflowRuntime's local
+  // /workflow/internal/* endpoints.
+  if (options.workflowBaseUrl) {
+    const wf = { baseUrl: options.workflowBaseUrl, secret: options.workflowSecret }
+    server.registerTool('list_workflows', {
+      description:
+        'List the GUI workflows the user marked callable by the agent. Returns each workflow id, name, and a short description.'
+    }, async () => {
+      try {
+        const result = await postJson(wf, '/workflow/internal/list', {})
+        const workflows = Array.isArray(result.workflows) ? result.workflows : []
+        return textResult(
+          workflows.length
+            ? `Found ${workflows.length} callable workflow(s).`
+            : 'No workflows are marked callable by the agent.',
+          { workflows }
+        )
+      } catch (error) {
+        return errorResult(`Failed to list workflows: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
+
+    server.registerTool('run_workflow', {
+      description:
+        "Run one of the user's GUI workflows by name (or id) and wait for it to finish. Call list_workflows first to see what is available. Returns the workflow's final output.",
+      inputSchema: {
+        workflow: z.string().min(1).describe('Workflow name or id from list_workflows'),
+        input: z.string().optional().describe('Optional input passed to the trigger; available to nodes as {{text}}'),
+        workspace_root: z.string().optional().describe('Optional working directory override for this run')
+      }
+    }, async (args) => {
+      try {
+        const result = await postJson(wf, '/workflow/internal/run', {
+          workflow: args.workflow,
+          input: args.input,
+          workspaceRoot: args.workspace_root
+        })
+        const status = typeof result.status === 'string' ? result.status : 'done'
+        const output = typeof result.output === 'string' ? result.output : ''
+        const message = typeof result.message === 'string' ? result.message : ''
+        return textResult(
+          `Workflow "${args.workflow}" finished (${status}).${message ? ` ${message}` : ''}${output ? `\n\nOutput:\n${output}` : ''}`,
+          { status, output, message }
+        )
+      } catch (error) {
+        return errorResult(`Failed to run workflow: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
+  }
 
   const transport = new StdioServerTransport()
   await server.connect(transport)

@@ -602,6 +602,19 @@ function hasEnabledWebhook(settings: AppSettingsV1): boolean {
   )
 }
 
+function hasAgentCallableWorkflow(settings: AppSettingsV1): boolean {
+  return settings.workflow.workflows.some((workflow) => workflow.enabled && workflow.callableByAgent)
+}
+
+/** Short description of a workflow for the agent's run_workflow / list_workflows tools. */
+function summarizeWorkflowForAgent(workflow: WorkflowV1): string {
+  const steps = workflow.nodes.filter((node) => node.type === 'ai-agent' || node.type === 'custom').length
+  const kinds = [...new Set(workflow.nodes.map((node) => node.type))].filter(
+    (kind) => kind !== 'manual-trigger' && kind !== 'schedule-trigger' && kind !== 'webhook-trigger'
+  )
+  return `${workflow.nodes.length} nodes${steps ? `, ${steps} AI step(s)` : ''} — ${kinds.slice(0, 6).join(', ') || 'trigger only'}`
+}
+
 // ---------------------------------------------------------------------------
 // WorkflowRuntime
 // ---------------------------------------------------------------------------
@@ -638,7 +651,10 @@ export class WorkflowRuntime {
   }
 
   private syncWebhookServer(settings: AppSettingsV1): void {
-    const shouldListen = settings.workflow.enabled && hasEnabledWebhook(settings)
+    // The same local server also hosts /workflow/internal/* for the agent tool,
+    // so listen when either a webhook OR an agent-callable workflow is enabled.
+    const shouldListen =
+      settings.workflow.enabled && (hasEnabledWebhook(settings) || hasAgentCallableWorkflow(settings))
     if (!shouldListen) {
       this.closeWebhookServer()
       return
@@ -682,6 +698,11 @@ export class WorkflowRuntime {
           return
         }
       }
+      // Internal endpoints used by the GUI-hosted workflow MCP server (agent tool).
+      if (pathname === '/workflow/internal/list' || pathname === '/workflow/internal/run') {
+        await this.handleInternalRequest(pathname, req, res, settings)
+        return
+      }
       const method = req.method ?? 'GET'
       let match: { workflow: WorkflowV1; nodeId: string } | null = null
       for (const workflow of settings.workflow.workflows) {
@@ -717,6 +738,71 @@ export class WorkflowRuntime {
         /* response already sent */
       }
     }
+  }
+
+  private async handleInternalRequest(
+    pathname: string,
+    req: IncomingMessage,
+    res: ServerResponse,
+    settings: AppSettingsV1
+  ): Promise<void> {
+    if (pathname === '/workflow/internal/list') {
+      const workflows = settings.workflow.workflows
+        .filter((workflow) => workflow.enabled && workflow.callableByAgent)
+        .map((workflow) => ({ id: workflow.id, name: workflow.name, description: summarizeWorkflowForAgent(workflow) }))
+      writeJson(res, 200, { ok: true, workflows })
+      return
+    }
+    const body = await readRequestBody(req)
+    const parsed = parseJsonObject(body) ?? {}
+    const idOrName = String(parsed.workflow ?? parsed.name ?? parsed.workflowId ?? '').trim()
+    if (!idOrName) {
+      writeJson(res, 400, { ok: false, message: 'Provide a workflow name or id.' })
+      return
+    }
+    const workspaceOverride = typeof parsed.workspaceRoot === 'string' ? parsed.workspaceRoot : undefined
+    const result = await this.runWorkflowForTool(idOrName, parsed.input, workspaceOverride)
+    writeJson(res, result.ok ? 200 : 400, result)
+  }
+
+  /** Run a workflow on behalf of the Kun agent tool: resolve by id/name, await it, return its output. */
+  async runWorkflowForTool(
+    idOrName: string,
+    input?: unknown,
+    workspaceOverride?: string
+  ): Promise<{ ok: boolean; status: WorkflowRunStatus; message: string; output: string; runId: string }> {
+    const settings = await this.deps.store.load()
+    const lower = idOrName.toLowerCase()
+    const workflow = settings.workflow.workflows.find(
+      (item) => item.enabled && item.callableByAgent && (item.id === idOrName || item.name.toLowerCase() === lower)
+    )
+    if (!workflow) {
+      return { ok: false, status: 'error', message: `No agent-callable workflow matches "${idOrName}".`, output: '', runId: '' }
+    }
+    if (this.runningWorkflowIds.has(workflow.id)) {
+      return { ok: false, status: 'error', message: 'Workflow is already running.', output: '', runId: '' }
+    }
+    const trigger =
+      workflow.nodes.find((node) => node.type === 'manual-trigger') ??
+      workflow.nodes.find((node) => node.type === 'schedule-trigger') ??
+      workflow.nodes.find((node) => node.type === 'webhook-trigger')
+    if (!trigger) {
+      return { ok: false, status: 'error', message: 'Workflow has no trigger node.', output: '', runId: '' }
+    }
+    const runId = randomUUID()
+    const initialPayload: WorkflowPayload =
+      input === undefined || input === null
+        ? { json: {}, text: '' }
+        : typeof input === 'string'
+          ? { json: { text: input }, text: input }
+          : { json: input, text: safeJson(input) }
+    const result = await this.runWorkflowInternal(workflow, trigger.id, 'agent', runId, initialPayload, workspaceOverride)
+    const after = await this.deps.store.load()
+    const run = after.workflow.workflows.find((item) => item.id === workflow.id)?.runs.find((entry) => entry.id === runId)
+    const last = run?.nodeResults[run.nodeResults.length - 1]
+    const status: WorkflowRunStatus = 'status' in result ? result.status : 'error'
+    const output = last?.outputJson || result.message
+    return { ok: result.ok, status, message: result.message, output, runId }
   }
 
   async status(): Promise<WorkflowRuntimeStatus> {
@@ -866,7 +952,8 @@ export class WorkflowRuntime {
     triggerNodeId: string,
     triggerLabel: string,
     runId = randomUUID(),
-    initialPayload: WorkflowPayload = { json: {}, text: '' }
+    initialPayload: WorkflowPayload = { json: {}, text: '' },
+    workspaceOverride?: string
   ): Promise<WorkflowRunResult> {
     if (this.runningWorkflowIds.has(workflow.id)) {
       return { ok: false, message: 'Workflow is already running.' }
@@ -906,7 +993,8 @@ export class WorkflowRuntime {
         settings,
         statusWorkflowId: workflow.id,
         cancelId: workflow.id,
-        depth: 0
+        depth: 0,
+        workspaceOverride
       })
       runStatus = result.status
       nodeResults = result.nodeResults
@@ -948,7 +1036,13 @@ export class WorkflowRuntime {
     workflow: WorkflowV1,
     triggerNodeId: string,
     initialPayload: WorkflowPayload,
-    ctx: { settings: AppSettingsV1; statusWorkflowId?: string; cancelId?: string; depth: number }
+    ctx: {
+      settings: AppSettingsV1
+      statusWorkflowId?: string
+      cancelId?: string
+      depth: number
+      workspaceOverride?: string
+    }
   ): Promise<{
     status: WorkflowRunStatus
     errorMessage: string
@@ -956,7 +1050,7 @@ export class WorkflowRuntime {
     output: WorkflowPayload
   }> {
     const { settings } = ctx
-    const runWorkspace = resolveRunWorkspace(workflow, settings, triggerNodeId)
+    const runWorkspace = ctx.workspaceOverride?.trim() || resolveRunWorkspace(workflow, settings, triggerNodeId)
     const setLive = (nodeId: string, status: WorkflowNodeRunStatus): void => {
       if (ctx.statusWorkflowId) this.setLive(ctx.statusWorkflowId, nodeId, status)
     }

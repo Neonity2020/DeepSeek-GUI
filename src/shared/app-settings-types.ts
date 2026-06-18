@@ -901,6 +901,8 @@ export type WorkflowV1 = {
   id: string
   name: string
   enabled: boolean
+  /** When true, the Kun agent may invoke this workflow as a tool (list_workflows / run_workflow). */
+  callableByAgent: boolean
   nodes: WorkflowNodeV1[]
   connections: WorkflowConnectionV1[]
   createdAt: string

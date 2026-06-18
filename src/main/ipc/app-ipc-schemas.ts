@@ -961,6 +961,7 @@ const workflowPatchSchema = z
     id: z.string().max(MAX_ID_LENGTH).optional(),
     name: z.string().max(512).optional(),
     enabled: z.boolean().optional(),
+    callableByAgent: z.boolean().optional(),
     nodes: z.array(workflowNodePatchSchema).max(200).optional(),
     connections: z.array(workflowConnectionPatchSchema).max(512).optional(),
     createdAt: z.string().max(128).optional(),

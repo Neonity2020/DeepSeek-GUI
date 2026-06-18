@@ -66,6 +66,7 @@
   "workflowName": "Name",
   "workflowNamePlaceholder": "Name this workflow",
   "workflowEnabled": "Enabled",
+  "workflowCallableByAgent": "Callable by the agent (run_workflow tool)",
   "workflowLastRun": "Last run",
   "workflowNextRun": "Next run",
   "workflowNeverRun": "Never",
