@@ -9,12 +9,14 @@ import {
   Brain,
   CalendarClock,
   Code2,
+  FileJson,
   Filter,
   GitBranch,
   GitMerge,
   Globe,
   Hand,
   ImagePlus,
+  LogOut,
   Play,
   Power,
   Repeat,
@@ -23,6 +25,7 @@ import {
   Split,
   Timer,
   Trash2,
+  Type,
   Webhook,
   Workflow,
   type LucideIcon
@@ -65,6 +68,9 @@ export const NODE_ICONS: Record<WorkflowNodeKind, LucideIcon> = {
   subworkflow: Workflow,
   loop: Repeat,
   delay: Timer,
+  template: Type,
+  json: FileJson,
+  output: LogOut,
   custom: Blocks
 }
 
@@ -123,6 +129,14 @@ function nodeSummary(node: WorkflowNodeV1): string {
       return `≤${node.config.maxIterations}×`
     case 'delay':
       return `${Math.round(node.config.delayMs / 1000)}s`
+    case 'template':
+      return node.config.template.trim().slice(0, 40) || node.config.outputMode
+    case 'json':
+      return node.config.mode
+    case 'output':
+      return node.config.mode === 'json' && node.config.jsonPath.trim()
+        ? `json: ${node.config.jsonPath.trim()}`
+        : node.config.mode
     default:
       return ''
   }
@@ -235,7 +249,7 @@ function WorkflowCanvasNode({ id, data, selected }: NodeProps): ReactElement {
             <Handle type="source" position={Position.Right} id="fallback" style={{ top: '88%' }} />
           ) : null}
         </>
-      ) : (
+      ) : node.type === 'output' ? null : (
         <Handle type="source" position={Position.Right} id="out" />
       )}
     </div>

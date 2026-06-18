@@ -596,16 +596,6 @@ function summarizeRun(results: WorkflowNodeRunResultV1[]): string {
   return `Completed ${results.length} step${results.length === 1 ? '' : 's'}`
 }
 
-function hasEnabledWebhook(settings: AppSettingsV1): boolean {
-  return settings.workflow.workflows.some(
-    (workflow) => workflow.enabled && workflow.nodes.some((node) => node.type === 'webhook-trigger' && !node.disabled)
-  )
-}
-
-function hasAgentCallableWorkflow(settings: AppSettingsV1): boolean {
-  return settings.workflow.workflows.some((workflow) => workflow.enabled && workflow.callableByAgent)
-}
-
 /** Short description of a workflow for the agent's run_workflow / list_workflows tools. */
 function summarizeWorkflowForAgent(workflow: WorkflowV1): string {
   const steps = workflow.nodes.filter((node) => node.type === 'ai-agent' || node.type === 'custom').length
@@ -651,10 +641,9 @@ export class WorkflowRuntime {
   }
 
   private syncWebhookServer(settings: AppSettingsV1): void {
-    // The same local server also hosts /workflow/internal/* for the agent tool,
-    // so listen when either a webhook OR an agent-callable workflow is enabled.
-    const shouldListen =
-      settings.workflow.enabled && (hasEnabledWebhook(settings) || hasAgentCallableWorkflow(settings))
+    // The same local server hosts webhook-trigger paths, /workflow/internal/* (agent
+    // tool) and the public POST /workflow/run, so listen whenever workflows are on.
+    const shouldListen = settings.workflow.enabled && settings.workflow.workflows.length > 0
     if (!shouldListen) {
       this.closeWebhookServer()
       return
@@ -701,6 +690,20 @@ export class WorkflowRuntime {
       // Internal endpoints used by the GUI-hosted workflow MCP server (agent tool).
       if (pathname === '/workflow/internal/list' || pathname === '/workflow/internal/run') {
         await this.handleInternalRequest(pathname, req, res, settings)
+        return
+      }
+      // Public local API: run any workflow by name/id and get its output back.
+      if (pathname === '/workflow/run') {
+        const body = await readRequestBody(req)
+        const parsed = parseJsonObject(body) ?? {}
+        const idOrName = String(parsed.workflow ?? parsed.name ?? parsed.workflowId ?? '').trim()
+        if (!idOrName) {
+          writeJson(res, 400, { ok: false, message: 'Provide a workflow name or id.' })
+          return
+        }
+        const workspaceOverride = typeof parsed.workspaceRoot === 'string' ? parsed.workspaceRoot : undefined
+        const result = await this.runWorkflowByRef(idOrName, parsed.input, workspaceOverride)
+        writeJson(res, result.ok ? 200 : 400, result)
         return
       }
       const method = req.method ?? 'GET'
@@ -779,13 +782,49 @@ export class WorkflowRuntime {
     if (!workflow) {
       return { ok: false, status: 'error', message: `No agent-callable workflow matches "${idOrName}".`, output: '', runId: '' }
     }
+    return this.runResolved(workflow, input, workspaceOverride)
+  }
+
+  /** Run any workflow by id or name (no callableByAgent gate) — for the local POST /workflow/run API. */
+  async runWorkflowByRef(
+    idOrName: string,
+    input?: unknown,
+    workspaceOverride?: string
+  ): Promise<{ ok: boolean; status: WorkflowRunStatus; message: string; output: string; runId: string }> {
+    const settings = await this.deps.store.load()
+    const lower = idOrName.toLowerCase()
+    const workflow = settings.workflow.workflows.find(
+      (item) => item.enabled && (item.id === idOrName || item.name.toLowerCase() === lower)
+    )
+    if (!workflow) {
+      return {
+        ok: false,
+        status: 'error',
+        message: `No enabled workflow matches "${idOrName}". Enable the workflow to expose it over HTTP.`,
+        output: '',
+        runId: ''
+      }
+    }
+    return this.runResolved(workflow, input, workspaceOverride)
+  }
+
+  private async runResolved(
+    workflow: WorkflowV1,
+    input: unknown,
+    workspaceOverride?: string
+  ): Promise<{ ok: boolean; status: WorkflowRunStatus; message: string; output: string; runId: string }> {
     if (this.runningWorkflowIds.has(workflow.id)) {
       return { ok: false, status: 'error', message: 'Workflow is already running.', output: '', runId: '' }
     }
+    // Prefer an enabled trigger (manual > schedule > webhook); fall back to any trigger.
     const trigger =
-      workflow.nodes.find((node) => node.type === 'manual-trigger') ??
-      workflow.nodes.find((node) => node.type === 'schedule-trigger') ??
-      workflow.nodes.find((node) => node.type === 'webhook-trigger')
+      workflow.nodes.find((node) => node.type === 'manual-trigger' && !node.disabled) ??
+      workflow.nodes.find((node) => node.type === 'schedule-trigger' && !node.disabled) ??
+      workflow.nodes.find((node) => node.type === 'webhook-trigger' && !node.disabled) ??
+      workflow.nodes.find(
+        (node) =>
+          node.type === 'manual-trigger' || node.type === 'schedule-trigger' || node.type === 'webhook-trigger'
+      )
     if (!trigger) {
       return { ok: false, status: 'error', message: 'Workflow has no trigger node.', output: '', runId: '' }
     }
@@ -799,10 +838,20 @@ export class WorkflowRuntime {
     const result = await this.runWorkflowInternal(workflow, trigger.id, 'agent', runId, initialPayload, workspaceOverride)
     const after = await this.deps.store.load()
     const run = after.workflow.workflows.find((item) => item.id === workflow.id)?.runs.find((entry) => entry.id === runId)
-    const last = run?.nodeResults[run.nodeResults.length - 1]
     const status: WorkflowRunStatus = 'status' in result ? result.status : 'error'
-    const output = last?.outputJson || result.message
+    const output = this.pickRunOutput(workflow, run) || result.message
     return { ok: result.ok, status, message: result.message, output, runId }
+  }
+
+  /** The run's canonical output: the last successful `output` node's result, else the last node's. */
+  private pickRunOutput(workflow: WorkflowV1, run: WorkflowRunV1 | undefined): string {
+    if (!run) return ''
+    const outputIds = new Set(workflow.nodes.filter((node) => node.type === 'output').map((node) => node.id))
+    const fromOutput = [...run.nodeResults]
+      .reverse()
+      .find((entry) => outputIds.has(entry.nodeId) && entry.status === 'success')
+    const chosen = fromOutput ?? run.nodeResults[run.nodeResults.length - 1]
+    return chosen?.outputJson ?? ''
   }
 
   async status(): Promise<WorkflowRuntimeStatus> {
@@ -1431,6 +1480,49 @@ export class WorkflowRuntime {
       case 'delay':
         await sleep(node.config.delayMs)
         return { payload, message: `Waited ${node.config.delayMs}ms` }
+      case 'template': {
+        const rendered = interpolate(node.config.template, payload)
+        if (node.config.outputMode === 'json') {
+          let parsed: unknown
+          let parsedOk = true
+          try {
+            parsed = JSON.parse(rendered)
+          } catch {
+            parsed = { text: rendered }
+            parsedOk = false
+          }
+          return { payload: { json: parsed, text: rendered }, message: parsedOk ? 'formatted' : 'formatted (text fallback)' }
+        }
+        return { payload: { json: { text: rendered }, text: rendered }, message: 'formatted' }
+      }
+      case 'json': {
+        if (node.config.mode === 'stringify') {
+          const text = safeJson(payload.json)
+          return { payload: { json: { text }, text }, message: 'stringified' }
+        }
+        try {
+          const parsed = JSON.parse(payload.text) as unknown
+          return { payload: { json: parsed, text: payload.text }, message: 'parsed' }
+        } catch (error) {
+          if (node.config.strict) {
+            throw new Error(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+          return { payload: { json: { text: payload.text }, text: payload.text }, message: 'parse fallback' }
+        }
+      }
+      case 'output': {
+        if (node.config.mode === 'text') {
+          const text = interpolate(node.config.textTemplate, payload)
+          return { payload: { json: { text }, text }, message: 'output' }
+        }
+        if (node.config.mode === 'json') {
+          const path = node.config.jsonPath.trim()
+          // A missing path resolves to undefined — coerce to null so the output is valid JSON.
+          const value = (path ? getByPath(payload.json, path) : payload.json) ?? null
+          return { payload: { json: value, text: safeJson(value) }, message: 'output' }
+        }
+        return { payload, message: 'output' }
+      }
       case 'custom': {
         const module = settings.workflow.modules.find((item) => item.id === node.config.moduleId)
         if (!module) throw new Error('Custom module not found — it may have been deleted.')

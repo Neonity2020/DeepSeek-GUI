@@ -329,6 +329,31 @@ export function normalizeWorkflowNode(value: unknown, index: number): WorkflowNo
         type: 'delay',
         config: { delayMs: normalizePositiveInteger(config.delayMs, 1_000, 0, 86_400_000) }
       }
+    case 'template':
+      return {
+        ...base,
+        type: 'template',
+        config: { template: asText(config.template), outputMode: config.outputMode === 'json' ? 'json' : 'text' }
+      }
+    case 'json':
+      return {
+        ...base,
+        type: 'json',
+        config: {
+          mode: config.mode === 'stringify' ? 'stringify' : 'parse',
+          strict: normalizeBoolean(config.strict, false)
+        }
+      }
+    case 'output':
+      return {
+        ...base,
+        type: 'output',
+        config: {
+          mode: config.mode === 'text' || config.mode === 'json' ? config.mode : 'auto',
+          textTemplate: asText(config.textTemplate),
+          jsonPath: asTrimmed(config.jsonPath)
+        }
+      }
     case 'custom':
       return {
         ...base,

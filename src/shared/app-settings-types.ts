@@ -556,6 +556,9 @@ export type WorkflowNodeKind =
   | 'subworkflow'
   | 'loop'
   | 'delay'
+  | 'template'
+  | 'json'
+  | 'output'
   | 'custom'
 
 export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
@@ -577,6 +580,9 @@ export const WORKFLOW_NODE_KINDS: readonly WorkflowNodeKind[] = [
   'subworkflow',
   'loop',
   'delay',
+  'template',
+  'json',
+  'output',
   'custom'
 ]
 
@@ -739,6 +745,35 @@ export type WorkflowSubWorkflowConfigV1 = {
   workflowId: string
 }
 
+/** Renders the payload into a free-form text string (or JSON parsed from it). */
+export type WorkflowTemplateConfigV1 = {
+  /** Template with {{json.x}} / {{text}} interpolation. */
+  template: string
+  /** 'text' emits the rendered string; 'json' parses it as JSON (falls back to { text }). */
+  outputMode: 'text' | 'json'
+}
+
+/** Converts between text and structured JSON. */
+export type WorkflowJsonConfigV1 = {
+  /** 'parse' turns the incoming text into JSON; 'stringify' serializes the incoming JSON to text. */
+  mode: 'parse' | 'stringify'
+  /** When parsing, throw on invalid JSON instead of falling back to { text }. */
+  strict: boolean
+}
+
+/**
+ * Terminal node that shapes the workflow's final output — what run_workflow,
+ * the local /workflow/run endpoint, and the run viewer treat as the result.
+ */
+export type WorkflowOutputConfigV1 = {
+  /** 'auto' passes the incoming payload through; 'text' renders a template; 'json' extracts a path. */
+  mode: 'auto' | 'text' | 'json'
+  /** Used in 'text' mode — supports {{json.x}} / {{text}}. */
+  textTemplate: string
+  /** Used in 'json' mode — dot path into the incoming json (empty = the whole json). */
+  jsonPath: string
+}
+
 /** A node that runs a user-defined custom module, with the module's field values. */
 export type WorkflowCustomConfigV1 = {
   /** id of the WorkflowCustomModuleV1 this node runs. */
@@ -846,6 +881,9 @@ export type WorkflowNodeConfigByKind = {
   subworkflow: WorkflowSubWorkflowConfigV1
   loop: WorkflowLoopConfigV1
   delay: WorkflowDelayConfigV1
+  template: WorkflowTemplateConfigV1
+  json: WorkflowJsonConfigV1
+  output: WorkflowOutputConfigV1
   custom: WorkflowCustomConfigV1
 }
 

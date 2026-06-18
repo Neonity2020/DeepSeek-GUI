@@ -683,6 +683,7 @@ function WorkflowEditorInner({
             onChange={handleNodeChange}
             onDelete={handleDeleteNode}
             onSavePreset={handleSavePreset}
+            workflowName={name}
           />
         </aside>
         ) : null}

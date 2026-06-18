@@ -28,7 +28,10 @@ export const WORKFLOW_PALETTE: readonly WorkflowNodeKind[] = [
   'merge',
   'subworkflow',
   'loop',
-  'delay'
+  'delay',
+  'template',
+  'json',
+  'output'
 ]
 
 export const TRIGGER_KINDS: ReadonlySet<WorkflowNodeKind> = new Set([
@@ -43,8 +46,8 @@ export const WORKFLOW_PALETTE_GROUPS: readonly WorkflowPaletteGroup[] = [
   { id: 'trigger', kinds: ['manual-trigger', 'schedule-trigger', 'webhook-trigger'] },
   { id: 'ai', kinds: ['ai-agent', 'generate-image'] },
   { id: 'flow', kinds: ['condition', 'switch', 'filter', 'merge', 'loop'] },
-  { id: 'data', kinds: ['set-fields', 'code', 'sort', 'limit', 'aggregate'] },
-  { id: 'action', kinds: ['http-request', 'subworkflow', 'delay'] }
+  { id: 'data', kinds: ['set-fields', 'template', 'json', 'code', 'sort', 'limit', 'aggregate'] },
+  { id: 'action', kinds: ['http-request', 'subworkflow', 'delay', 'output'] }
 ]
 
 export type WorkflowFlowNodeData = {
@@ -147,6 +150,12 @@ export function createWorkflowNode(
       }
     case 'delay':
       return { ...base, type: 'delay', config: { delayMs: 1_000 } }
+    case 'template':
+      return { ...base, type: 'template', config: { template: '', outputMode: 'text' } }
+    case 'json':
+      return { ...base, type: 'json', config: { mode: 'parse', strict: false } }
+    case 'output':
+      return { ...base, type: 'output', config: { mode: 'auto', textTemplate: '', jsonPath: '' } }
     case 'custom':
       return { ...base, type: 'custom', config: { moduleId: '', values: {} } }
     default:

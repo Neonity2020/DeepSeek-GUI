@@ -782,6 +782,28 @@ const workflowCustomConfigSchema = z
   })
   .strict()
 
+const workflowTemplateConfigSchema = z
+  .object({
+    template: z.string().max(MAX_BODY_BYTES).optional(),
+    outputMode: z.enum(['text', 'json']).optional()
+  })
+  .strict()
+
+const workflowJsonConfigSchema = z
+  .object({
+    mode: z.enum(['parse', 'stringify']).optional(),
+    strict: z.boolean().optional()
+  })
+  .strict()
+
+const workflowOutputConfigSchema = z
+  .object({
+    mode: z.enum(['auto', 'text', 'json']).optional(),
+    textTemplate: z.string().max(MAX_BODY_BYTES).optional(),
+    jsonPath: z.string().max(2_000).optional()
+  })
+  .strict()
+
 const workflowFieldSchema = z
   .object({ key: z.string().max(256), value: z.string().max(MAX_BODY_BYTES) })
   .strict()
@@ -918,6 +940,9 @@ const workflowNodePatchSchema = z.discriminatedUnion('type', [
   z.object({ ...workflowNodeBaseShape, type: z.literal('subworkflow'), config: workflowSubWorkflowConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('loop'), config: workflowLoopConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('delay'), config: workflowDelayConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('template'), config: workflowTemplateConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('json'), config: workflowJsonConfigSchema.optional() }).strict(),
+  z.object({ ...workflowNodeBaseShape, type: z.literal('output'), config: workflowOutputConfigSchema.optional() }).strict(),
   z.object({ ...workflowNodeBaseShape, type: z.literal('custom'), config: workflowCustomConfigSchema.optional() }).strict()
 ])
 

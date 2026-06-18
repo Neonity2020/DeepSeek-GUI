@@ -28,6 +28,20 @@ const CODE_PLACEHOLDERS: Record<WorkflowCodeLanguage, string> = {
   python: 'import sys, json\ndata = json.load(sys.stdin)\nprint(data.get("text", ""))',
   bash: 'echo "$WORKFLOW_TEXT" | tr a-z A-Z'
 }
+function buildWorkflowRunCurl(settings: AppSettingsV1, name: string): string {
+  const port = settings.workflow.webhookPort
+  const secret = settings.workflow.webhookSecret.trim()
+  const lines = [
+    `curl -X POST http://127.0.0.1:${port}/workflow/run \\`,
+    `  -H "Content-Type: application/json" \\`
+  ]
+  if (secret) lines.push(`  -H "x-kun-secret: ${secret}" \\`)
+  // Shell-escape single quotes in the JSON so a workflow name with a quote can't break out of the -d '...' arg.
+  const payload = JSON.stringify({ workflow: name, input: '' }).replace(/'/g, "'\\''")
+  lines.push(`  -d '${payload}'`)
+  return lines.join('\n')
+}
+
 const CONDITION_OPERATORS: WorkflowConditionOperator[] = [
   'contains',
   'notContains',
@@ -51,6 +65,8 @@ type Props = {
   onDelete: (nodeId: string) => void
   /** Save the current node as a reusable palette preset. */
   onSavePreset?: (node: WorkflowNodeV1, label: string) => void
+  /** Current workflow name, used to render the local HTTP invocation example on the trigger. */
+  workflowName?: string
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }): ReactElement {
@@ -143,7 +159,8 @@ export function NodeConfigPanel({
   lastResult,
   onChange,
   onDelete,
-  onSavePreset
+  onSavePreset,
+  workflowName
 }: Props): ReactElement {
   const { t } = useTranslation('common')
 
@@ -227,6 +244,23 @@ export function NodeConfigPanel({
             />
             <span className="mt-1 text-[11px] leading-4 text-ds-faint">{t('workflowTriggerWorkspaceHint')}</span>
           </Field>
+        ) : null}
+
+        {node.type === 'manual-trigger' && workflowName ? (
+          <div className="flex flex-col gap-1.5 border-t border-ds-border pt-3">
+            <span className="text-[12px] font-medium text-ds-muted">{t('workflowLocalApi')}</span>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-ds-subtle px-3 py-2 font-mono text-[11px] leading-5 text-ds-muted">
+              {buildWorkflowRunCurl(settings, workflowName)}
+            </pre>
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(buildWorkflowRunCurl(settings, workflowName))}
+              className="self-start rounded-md border border-ds-border px-2 py-1 text-[11.5px] font-medium text-ds-ink transition hover:bg-ds-hover"
+            >
+              {t('workflowLocalApiCopy')}
+            </button>
+            <span className="text-[11px] leading-4 text-ds-faint">{t('workflowLocalApiHint')}</span>
+          </div>
         ) : null}
 
         {node.type === 'schedule-trigger' ? (
@@ -1071,6 +1105,111 @@ export function NodeConfigPanel({
               }
             />
           </Field>
+        ) : null}
+
+        {node.type === 'template' ? (
+          <>
+            <Field label={t('workflowTemplate')}>
+              <textarea
+                className={`${INPUT_CLASS} min-h-[120px] resize-y font-mono`}
+                value={node.config.template}
+                placeholder={'{{json.title}} — {{text}}'}
+                onChange={(event) => onChange({ ...node, config: { ...node.config, template: event.target.value } })}
+              />
+            </Field>
+            <Field label={t('workflowTemplateOutput')}>
+              <select
+                className={INPUT_CLASS}
+                value={node.config.outputMode}
+                onChange={(event) =>
+                  onChange({
+                    ...node,
+                    config: { ...node.config, outputMode: event.target.value === 'json' ? 'json' : 'text' }
+                  })
+                }
+              >
+                <option value="text">{t('workflowTemplateOutputText')}</option>
+                <option value="json">{t('workflowTemplateOutputJson')}</option>
+              </select>
+            </Field>
+            <p className="text-[11.5px] leading-5 text-ds-faint">{t('workflowTemplateHint')}</p>
+          </>
+        ) : null}
+
+        {node.type === 'json' ? (
+          <>
+            <Field label={t('workflowJsonMode')}>
+              <select
+                className={INPUT_CLASS}
+                value={node.config.mode}
+                onChange={(event) =>
+                  onChange({
+                    ...node,
+                    config: { ...node.config, mode: event.target.value === 'stringify' ? 'stringify' : 'parse' }
+                  })
+                }
+              >
+                <option value="parse">{t('workflowJsonParse')}</option>
+                <option value="stringify">{t('workflowJsonStringify')}</option>
+              </select>
+            </Field>
+            {node.config.mode === 'parse' ? (
+              <label className="flex items-center gap-2 text-[13px] text-ds-ink">
+                <input
+                  type="checkbox"
+                  checked={node.config.strict}
+                  onChange={(event) => onChange({ ...node, config: { ...node.config, strict: event.target.checked } })}
+                />
+                {t('workflowJsonStrict')}
+              </label>
+            ) : null}
+            <p className="text-[11.5px] leading-5 text-ds-faint">{t('workflowJsonHint')}</p>
+          </>
+        ) : null}
+
+        {node.type === 'output' ? (
+          <>
+            <p className="text-[11.5px] leading-5 text-ds-faint">{t('workflowOutputHint')}</p>
+            <Field label={t('workflowOutputMode')}>
+              <select
+                className={INPUT_CLASS}
+                value={node.config.mode}
+                onChange={(event) => {
+                  const value = event.target.value
+                  onChange({
+                    ...node,
+                    config: { ...node.config, mode: value === 'text' || value === 'json' ? value : 'auto' }
+                  })
+                }}
+              >
+                <option value="auto">{t('workflowOutputModeAuto')}</option>
+                <option value="text">{t('workflowOutputModeText')}</option>
+                <option value="json">{t('workflowOutputModeJson')}</option>
+              </select>
+            </Field>
+            {node.config.mode === 'text' ? (
+              <Field label={t('workflowOutputText')}>
+                <textarea
+                  className={`${INPUT_CLASS} min-h-[100px] resize-y font-mono`}
+                  value={node.config.textTemplate}
+                  placeholder={'{{text}}'}
+                  onChange={(event) =>
+                    onChange({ ...node, config: { ...node.config, textTemplate: event.target.value } })
+                  }
+                />
+              </Field>
+            ) : null}
+            {node.config.mode === 'json' ? (
+              <Field label={t('workflowOutputJsonPath')}>
+                <input
+                  className={INPUT_CLASS}
+                  value={node.config.jsonPath}
+                  placeholder="data.results"
+                  onChange={(event) => onChange({ ...node, config: { ...node.config, jsonPath: event.target.value } })}
+                />
+              </Field>
+            ) : null}
+          </>
         ) : null}
 
         {node.type === 'custom' ? <CustomNodeForm node={node} settings={settings} onChange={onChange} /> : null}
