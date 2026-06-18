@@ -288,10 +288,10 @@ export function createMaintenanceActions(
       const result = await p.compactThread(activeThreadId, reason)
       await get().refreshThreads()
       await get().selectThread(activeThreadId)
-      // A manual compact issues no model request, so no `usage` event arrives
-      // to refresh the context gauge — it would stay frozen at the pre-compact
-      // total until the next turn. Drop the measured total by the folded amount
-      // so the gauge reflects the compaction immediately. The next real turn
+      // Manual compaction may use a model request for the summary, but the
+      // chat context gauge is still based on the main turn's measured prompt.
+      // Drop the last turn's total by the folded amount so the UI reflects the
+      // compacted model-visible history immediately. The next real turn
       // replaces this with a precise provider count.
       const replacedTokens = result && typeof result.replacedTokens === 'number' ? result.replacedTokens : 0
       if (replacedTokens > 0) {

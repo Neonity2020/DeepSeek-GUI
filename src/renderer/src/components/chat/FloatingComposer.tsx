@@ -656,7 +656,7 @@ export function FloatingComposer({
     if (!subscribeContextBlocks) return conversationTokensRef.current
     // Only the slice from the most recent compaction onward is actually re-sent
     // to the model — the runtime folds everything before the latest compaction
-    // summary into it (effectiveHistoryAfterLatestCompaction). Counting the full
+    // summary into it (effective history after the latest compaction). Counting the full
     // visible history would over-state usage and hide the effect of compaction.
     let startIndex = 0
     for (let i = contextBlocks.length - 1; i >= 0; i -= 1) {

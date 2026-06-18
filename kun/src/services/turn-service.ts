@@ -10,6 +10,10 @@ import type { ImmutablePrefix } from '../cache/immutable-prefix.js'
 import type { InflightTracker } from '../loop/inflight-tracker.js'
 import type { SteeringQueue } from '../loop/steering-queue.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
+import {
+  effectiveHistoryAfterLatestCompaction,
+  insertCompactionIntoVisibleHistory
+} from '../loop/compaction-history.js'
 import { summarizeCompactionWithModel } from '../loop/compaction-summary.js'
 import type { ContextCompactionConfig } from '../loop/model-context-profile.js'
 import { makeUserItem, makeErrorItem } from '../domain/item.js'
@@ -165,7 +169,8 @@ export class TurnService {
     if (!thread) throw new Error(`thread not found: ${input.threadId}`)
     const turnId = input.turnId ?? thread.turns[thread.turns.length - 1]?.id ?? this.deps.ids.next('turn')
     const items = await this.deps.sessionStore.loadItems(input.threadId)
-    const history = items.filter((item) => !this.isSystemOnly(item))
+    const history = effectiveHistoryAfterLatestCompaction(items)
+      .filter((item) => item.kind !== 'error')
     const prefix = this.deps.prefix ?? createImmutablePrefix({
       pinnedConstraints: ['user: preserve recent turns']
     })
@@ -245,12 +250,13 @@ export class TurnService {
           })
         }
       }
-      // appendItem records the marker into the thread store (so the timeline
-      // shows it on reload); the rewrite then collapses the *session* history to
-      // "summary marker + recent verbatim tail" so the kept tail survives into
-      // the next turn instead of being dropped to summary-only.
-      await this.appendItem(input.threadId, result.summaryItem)
-      await this.deps.sessionStore.rewriteItems(input.threadId, result.next)
+      const visibleItems = insertCompactionIntoVisibleHistory({
+        visibleItems: items,
+        compactedItems: result.next,
+        summaryItem: result.summaryItem
+      })
+      await this.deps.sessionStore.rewriteItems(input.threadId, visibleItems)
+      await this.rewriteThreadItemsFromSession(input.threadId, visibleItems)
       await this.deps.events.record({
         kind: 'compaction_completed',
         threadId: input.threadId,
@@ -532,6 +538,26 @@ export class TurnService {
     return items.filter((item) => item.kind === 'user_message')
   }
 
+  private async rewriteThreadItemsFromSession(threadId: string, items: TurnItem[]): Promise<void> {
+    if (items.length === 0) return
+    const itemsByTurn = new Map<string, TurnItem[]>()
+    for (const item of items) {
+      const turnItems = itemsByTurn.get(item.turnId) ?? []
+      turnItems.push(item)
+      itemsByTurn.set(item.turnId, turnItems)
+    }
+    await this.upsertThread(threadId, (current) => {
+      let changed = false
+      const turns = current.turns.map((turn) => {
+        const sessionItems = itemsByTurn.get(turn.id)
+        if (!sessionItems) return turn
+        changed = true
+        return { ...turn, items: sessionItems }
+      })
+      return changed ? { ...current, turns } : current
+    })
+  }
+
   private finalizeOpenItem(
     item: TurnItem,
     status: Extract<TurnStatus, 'completed' | 'failed' | 'aborted'>,
@@ -548,9 +574,6 @@ export class TurnService {
     return { ...item, status: itemStatus, finishedAt } as TurnItem
   }
 
-  private isSystemOnly(item: TurnItem): boolean {
-    return item.kind === 'compaction' || item.kind === 'error'
-  }
 }
 
 function modelForManualCompaction(input: {

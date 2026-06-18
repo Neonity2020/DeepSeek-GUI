@@ -21,6 +21,10 @@ import type { RuntimeErrorSeverity } from '../contracts/errors.js'
 import type { IdGenerator } from '../ports/id-generator.js'
 import type { ImmutablePrefix } from '../cache/immutable-prefix.js'
 import { ContextCompactor } from './context-compactor.js'
+import {
+  effectiveHistoryAfterLatestCompaction,
+  insertCompactionIntoVisibleHistory
+} from './compaction-history.js'
 import { summarizeCompactionWithModel } from './compaction-summary.js'
 import { InflightTracker } from './inflight-tracker.js'
 import { SteeringQueue } from './steering-queue.js'
@@ -1161,6 +1165,7 @@ export class AgentLoop {
     const history = await this.compactIfNeeded(items, model, signal, {
       threadId,
       turnId,
+      visibleItems: historyItems,
       toolSpecs: effectiveToolSpecs
     })
     if (signal.aborted) return 'aborted'
@@ -2111,7 +2116,12 @@ export class AgentLoop {
     items: TurnItem[],
     model: string,
     signal: AbortSignal,
-    context: { threadId: string; turnId: string; toolSpecs?: readonly ModelToolSpec[] }
+    context: {
+      threadId: string
+      turnId: string
+      visibleItems: TurnItem[]
+      toolSpecs?: readonly ModelToolSpec[]
+    }
   ): Promise<TurnItem[]> {
     // Restore the accurate provider token count after a process restart,
     // when the in-memory pressure map is empty. Without this the next
@@ -2198,16 +2208,15 @@ export class AgentLoop {
         })
       }
     }
-    // Persist the folded history (summary marker FOLLOWED BY the recent items
-    // kept verbatim) so subsequent turns re-send the same compacted context.
-    // Previously we only appended the marker after the full on-disk log, so the
-    // kept tail sat *before* the marker and was dropped by
-    // effectiveHistoryAfterLatestCompaction on the next turn — leaving only the
-    // summary. Rewriting to result.next keeps "summary + recent verbatim"
-    // (codex-style) on disk. SSE subscribers still see the event.
     if (result.replacedTokens > 0) {
+      const visibleItems = insertCompactionIntoVisibleHistory({
+        visibleItems: context.visibleItems,
+        compactedItems: result.next,
+        summaryItem: result.summaryItem
+      })
       this.opts.toolHost.clearReadTracker?.(threadId)
-      await this.opts.sessionStore.rewriteItems(threadId, result.next)
+      await this.opts.sessionStore.rewriteItems(threadId, visibleItems)
+      await this.rewriteThreadItemsFromSession(threadId, visibleItems)
       await this.opts.events.record({
         kind: 'compaction_completed',
         threadId,
@@ -2228,6 +2237,27 @@ export class AgentLoop {
       })
     }
     return result.next
+  }
+
+  private async rewriteThreadItemsFromSession(threadId: string, items: TurnItem[]): Promise<void> {
+    if (items.length === 0) return
+    const current = await this.opts.threadStore.get(threadId)
+    if (!current) return
+    const itemsByTurn = new Map<string, TurnItem[]>()
+    for (const item of items) {
+      const turnItems = itemsByTurn.get(item.turnId) ?? []
+      turnItems.push(item)
+      itemsByTurn.set(item.turnId, turnItems)
+    }
+    let changed = false
+    const turns = current.turns.map((turn) => {
+      const sessionItems = itemsByTurn.get(turn.id)
+      if (!sessionItems) return turn
+      changed = true
+      return { ...turn, items: sessionItems }
+    })
+    if (!changed) return
+    await this.opts.threadStore.upsert(touchThread({ ...current, turns }, this.opts.nowIso()))
   }
 
   private async recordTokenEconomySavings(input: {
@@ -2680,16 +2710,6 @@ function buildToolCatalogDriftMessage(toolCatalog: {
     policy,
     sample ? `Current tools: ${sample}${suffix}.` : ''
   ].filter(Boolean).join(' ')
-}
-
-function effectiveHistoryAfterLatestCompaction(items: TurnItem[]): TurnItem[] {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]
-    if (item.kind === 'compaction' && item.replacedTokens > 0) {
-      return items.slice(index)
-    }
-  }
-  return items
 }
 
 function resolveModelMode(...candidates: Array<string | undefined>): { kind: 'fixed'; model: string } | { kind: 'auto' } {

@@ -10,6 +10,7 @@ import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../src/adapters/tool/
 import { FileThreadStore, FileSessionStore } from '../src/adapters/file/index.js'
 import { RuntimeEventRecorder } from '../src/services/runtime-event-recorder.js'
 import { ContextCompactor } from '../src/loop/context-compactor.js'
+import { effectiveHistoryAfterLatestCompaction } from '../src/loop/compaction-history.js'
 import { resolveModelContextProfile } from '../src/loop/model-context-profile.js'
 import {
   makeApprovalItem,
@@ -2213,13 +2214,15 @@ describe('AgentLoop', () => {
     }
     await h.loop.runTurn(h.threadId, h.turnId)
     const items = await h.sessionStore.loadItems(h.threadId)
+    const effectiveItems = effectiveHistoryAfterLatestCompaction(items)
     expect(items.some((item) => item.kind === 'compaction')).toBe(true)
-    // The folded history is rewritten to "summary marker FIRST, then the recent
-    // items kept verbatim" (codex-style), so the marker leads and the old head
-    // is dropped from the session log rather than the marker being appended
-    // after the full history (which left only the summary on the next turn).
-    expect(items[0]?.kind).toBe('compaction')
-    expect(items.length).toBeLessThan(11)
+    // The visible transcript remains complete, while the model-visible
+    // projection starts at the latest compaction marker followed by the recent
+    // tail kept verbatim.
+    expect(items.some((item) => item.id === 'hist_0')).toBe(true)
+    expect(effectiveItems[0]?.kind).toBe('compaction')
+    expect(effectiveItems.some((item) => item.id === 'hist_0')).toBe(false)
+    expect(effectiveItems.length).toBeLessThan(items.length)
   })
 
   it('can use a model summary for history compaction while reusing the main prefix', async () => {

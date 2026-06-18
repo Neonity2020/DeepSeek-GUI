@@ -7,6 +7,7 @@ import { makeAssistantTextItem, makeUserItem } from '../domain/item.js'
 import { createThreadRecord } from '../domain/thread.js'
 import { appendTurnItem, createTurnRecord, finishTurn } from '../domain/turn.js'
 import { ContextCompactor } from '../loop/context-compactor.js'
+import { effectiveHistoryAfterLatestCompaction } from '../loop/compaction-history.js'
 import { InflightTracker } from '../loop/inflight-tracker.js'
 import { SteeringQueue } from '../loop/steering-queue.js'
 import { SequentialIdGenerator } from '../ports/id-generator.js'
@@ -48,7 +49,7 @@ class SummaryModel implements ModelClient {
 }
 
 describe('TurnService compact', () => {
-  it('uses model summaries for manual compaction and rewrites canonical history', async () => {
+  it('uses model summaries for manual compaction while preserving visible history', async () => {
     const sessionStore = new InMemorySessionStore()
     const threadStore = new InMemoryThreadStore()
     const eventBus = new InMemoryEventBus()
@@ -134,21 +135,35 @@ describe('TurnService compact', () => {
     expect(response.summary).toContain('MODEL SUMMARY kept the durable state.')
     expect(response.pinnedConstraints).toEqual(prefix.pinnedConstraints)
 
-    const rewritten = await sessionStore.loadItems(threadId)
-    expect(rewritten).toHaveLength(5)
-    expect(rewritten.slice(1).map((item) => item.id)).toEqual([
+    const visibleItems = await sessionStore.loadItems(threadId)
+    expect(visibleItems).toHaveLength(7)
+    expect(visibleItems.map((item) => item.id)).toEqual([
+      'item_1',
+      'item_2',
+      expect.stringMatching(/^compaction_/),
       'item_3',
       'item_4',
       'item_5',
       'item_6'
     ])
-    expect(rewritten[0]).toMatchObject({
+    expect(visibleItems[2]).toMatchObject({
       kind: 'compaction',
       auto: false,
       summary: expect.stringContaining('MODEL SUMMARY kept the durable state.'),
       pinnedConstraints: prefix.pinnedConstraints,
       sourceItemIds: ['item_1', 'item_2']
     })
+    expect(effectiveHistoryAfterLatestCompaction(visibleItems).map((item) => item.id)).toEqual([
+      visibleItems[2]?.id,
+      'item_3',
+      'item_4',
+      'item_5',
+      'item_6'
+    ])
+    const hydratedThread = await threadStore.get(threadId)
+    expect(hydratedThread?.turns[0]?.items.map((item) => item.id)).toEqual(
+      visibleItems.map((item) => item.id)
+    )
 
     const runtimeEvents = await sessionStore.loadEventsSince(threadId, 0)
     const started = runtimeEvents.find((event) => event.kind === 'compaction_started')
