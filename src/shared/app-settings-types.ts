@@ -1133,6 +1133,8 @@ export type WorkflowRuntimeStatus = {
   runningWorkflowIds: string[]
   /** workflowId -> nodeId -> live status, for lighting up the canvas during a run. */
   nodeStatus: Record<string, WorkflowNodeStatusMap>
+  /** workflowId -> nodeId -> live per-node result (input/output/timing), for the run-log panel. */
+  nodeResults: Record<string, Record<string, WorkflowNodeRunResultV1>>
   powerSaveBlockerActive: boolean
   /** Human-approval nodes currently paused, awaiting an approve/reject decision. */
   pendingApprovals: WorkflowPendingApprovalV1[]

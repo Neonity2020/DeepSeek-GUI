@@ -80,10 +80,25 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
     }
   }, [])
 
+  // Poll fast (1.2s) while something is running so the run log streams, slow (5s) when idle.
+  const runningRef = useRef(false)
+  useEffect(() => {
+    runningRef.current = (status?.runningWorkflowIds.length ?? 0) > 0
+  }, [status])
   useEffect(() => {
     void load()
-    const id = window.setInterval(() => void refreshStatus(), 5_000)
-    return () => window.clearInterval(id)
+    let cancelled = false
+    let timer = 0
+    const tick = async (): Promise<void> => {
+      await refreshStatus()
+      if (cancelled) return
+      timer = window.setTimeout(() => void tick(), runningRef.current ? 1_200 : 5_000)
+    }
+    timer = window.setTimeout(() => void tick(), 5_000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [load, refreshStatus])
 
   const workflowSettings = settings ? normalizeWorkflowSettings(settings.workflow) : null
@@ -91,6 +106,14 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
   const presets = workflowSettings?.presets ?? EMPTY_PRESETS
   const modules = workflowSettings?.modules ?? EMPTY_MODULES
   const runningIds = useMemo(() => new Set(status?.runningWorkflowIds ?? []), [status])
+
+  // When a run finishes, reload settings so the editor's persisted last-run results refresh.
+  const prevRunningCount = useRef(0)
+  useEffect(() => {
+    const count = runningIds.size
+    if (count < prevRunningCount.current) void load()
+    prevRunningCount.current = count
+  }, [runningIds, load])
 
   const persistPresets = useCallback(
     async (nextPresets: WorkflowNodePresetV1[]): Promise<void> => {
@@ -303,6 +326,7 @@ export function WorkflowView({ leftSidebarCollapsed, onToggleLeftSidebar }: Prop
           settings={settings}
           runStatus={status?.nodeStatus[editingWorkflow.id] ?? {}}
           lastResults={lastResults}
+          liveResults={status?.nodeResults[editingWorkflow.id] ?? {}}
           running={runningIds.has(editingWorkflow.id)}
           onPersist={handleEditorPersist}
           onRun={() => requestRun(editingWorkflow)}

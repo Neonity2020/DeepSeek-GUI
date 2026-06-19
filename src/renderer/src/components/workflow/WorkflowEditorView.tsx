@@ -1,5 +1,5 @@
 import type { DragEvent, ReactElement } from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -53,6 +53,7 @@ import {
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { ModuleManager } from './ModuleManager'
 import { WorkflowRunHistory } from './WorkflowRunHistory'
+import { WorkflowRunLogPanel } from './WorkflowRunLogPanel'
 import {
   TRIGGER_KINDS,
   WORKFLOW_PALETTE,
@@ -88,6 +89,8 @@ type Props = {
   settings: AppSettingsV1
   runStatus: Record<string, WorkflowNodeRunStatus>
   lastResults: Record<string, WorkflowNodeRunResultV1>
+  /** Live per-node results during a run (input/output/timing) for the run-log panel. */
+  liveResults: Record<string, WorkflowNodeRunResultV1>
   running: boolean
   onPersist: (patch: {
     name: string
@@ -112,6 +115,7 @@ function WorkflowEditorInner({
   settings,
   runStatus,
   lastResults,
+  liveResults,
   running,
   onPersist,
   onRun,
@@ -139,6 +143,17 @@ function WorkflowEditorInner({
   const [showModules, setShowModules] = useState(false)
   const [showEnv, setShowEnv] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [rightTab, setRightTab] = useState<'config' | 'log'>('config')
+  // Live results win during a run; fall back to the last persisted run when idle.
+  const logResults = Object.keys(liveResults).length > 0 ? liveResults : lastResults
+  // Jump to the run log when a run starts.
+  useEffect(() => {
+    if (running) setRightTab('log')
+  }, [running])
+  // Selecting a node jumps back to its config.
+  useEffect(() => {
+    if (selectedNodeId) setRightTab('config')
+  }, [selectedNodeId])
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const connectingRef = useRef<{ nodeId: string; handleId: string } | null>(null)
@@ -730,18 +745,44 @@ function WorkflowEditorInner({
 
         {!rightPanelCollapsed ? (
         <aside className="flex w-[320px] shrink-0 flex-col overflow-hidden border-l border-ds-border bg-ds-card/40">
-          <NodeConfigPanel
-            node={selectedNode}
-            settings={settings}
-            lastResult={selectedNodeId ? lastResults[selectedNodeId] ?? null : null}
-            onChange={handleNodeChange}
-            onDelete={handleDeleteNode}
-            onSavePreset={handleSavePreset}
-            workflowName={name}
-            upstreamNodes={upstreamNodes}
-            workflowId={workflow.id}
-            onBeforeTest={handleSave}
-          />
+          <div className="flex shrink-0 items-center gap-1 border-b border-ds-border px-2 pt-2">
+            {(['config', 'log'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setRightTab(tab)}
+                className={`relative flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-medium transition ${
+                  rightTab === tab ? 'text-ds-ink' : 'text-ds-faint hover:text-ds-muted'
+                }`}
+              >
+                {tab === 'config' ? t('workflowTabConfig') : t('workflowTabRunLog')}
+                {tab === 'log' && running ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                ) : null}
+                {rightTab === tab ? (
+                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            {rightTab === 'config' ? (
+              <NodeConfigPanel
+                node={selectedNode}
+                settings={settings}
+                lastResult={selectedNodeId ? logResults[selectedNodeId] ?? lastResults[selectedNodeId] ?? null : null}
+                onChange={handleNodeChange}
+                onDelete={handleDeleteNode}
+                onSavePreset={handleSavePreset}
+                workflowName={name}
+                upstreamNodes={upstreamNodes}
+                workflowId={workflow.id}
+                onBeforeTest={handleSave}
+              />
+            ) : (
+              <WorkflowRunLogPanel nodes={workflow.nodes} results={logResults} running={running} />
+            )}
+          </div>
         </aside>
         ) : null}
       </div>

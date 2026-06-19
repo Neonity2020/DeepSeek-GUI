@@ -666,6 +666,10 @@ describe('WorkflowRuntime end-to-end execution', () => {
     const pending = (await runtime.status()).pendingApprovals[0]
     expect(pending.title).toBe('Confirm')
     expect(pending.instruction).toBe('ok?')
+    // Live run log: while paused, the trigger has a finished result and the approval node is mid-run.
+    const live = await runtime.status()
+    expect(live.nodeResults['wf-ha']?.['m']?.status).toBe('success')
+    expect(live.nodeResults['wf-ha']?.['a']?.status).toBe('running')
     expect(runtime.resolveApproval(pending.token, 'approved')).toBe(true)
     await waitFor(async () => {
       const run = store.read().workflow.workflows[0].runs.find((entry) => entry.id === runId)

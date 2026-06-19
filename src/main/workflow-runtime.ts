@@ -808,6 +808,8 @@ export class WorkflowRuntime {
   >()
   /** workflowId -> nodeId -> live status, surfaced to the canvas via status(). */
   private liveNodeStatus = new Map<string, Map<string, WorkflowNodeRunStatus>>()
+  /** workflowId -> nodeId -> latest per-node result (input/output/timing), surfaced live during a run. */
+  private liveNodeResults = new Map<string, Map<string, WorkflowNodeRunResultV1>>()
   private powerSaveBlockerId: number | null = null
   private webhookServer: Server | null = null
   private webhookServerKey = ''
@@ -1061,9 +1063,14 @@ export class WorkflowRuntime {
     for (const [workflowId, map] of this.liveNodeStatus) {
       nodeStatus[workflowId] = Object.fromEntries(map)
     }
+    const nodeResults: Record<string, Record<string, WorkflowNodeRunResultV1>> = {}
+    for (const [workflowId, map] of this.liveNodeResults) {
+      nodeResults[workflowId] = Object.fromEntries(map)
+    }
     return {
       runningWorkflowIds: [...this.runningWorkflowIds],
       nodeStatus,
+      nodeResults,
       powerSaveBlockerActive: this.isPowerSaveBlockerActive(),
       pendingApprovals: [...this.pendingApprovals.values()].map((pending) => pending.entry)
     }
@@ -1290,6 +1297,14 @@ export class WorkflowRuntime {
     this.liveNodeStatus.set(workflowId, map)
   }
 
+  /** Surface a per-node result (input/output/timing) live so the editor can show run logs as it runs. */
+  private setLiveResult(workflowId: string | undefined, result: WorkflowNodeRunResultV1): void {
+    if (!workflowId) return
+    const map = this.liveNodeResults.get(workflowId) ?? new Map<string, WorkflowNodeRunResultV1>()
+    map.set(result.nodeId, result)
+    this.liveNodeResults.set(workflowId, map)
+  }
+
   private async runWorkflowInternal(
     workflow: WorkflowV1,
     triggerNodeId: string,
@@ -1307,6 +1322,7 @@ export class WorkflowRuntime {
     const liveStatus = new Map<string, WorkflowNodeRunStatus>()
     workflow.nodes.forEach((node) => liveStatus.set(node.id, 'pending'))
     this.liveNodeStatus.set(workflow.id, liveStatus)
+    this.liveNodeResults.set(workflow.id, new Map())
 
     const startedAt = new Date()
     const run: WorkflowRunV1 = {
@@ -1367,7 +1383,10 @@ export class WorkflowRuntime {
       for (const [token, pending] of this.pendingApprovals) {
         if (pending.entry.runId === runId) this.pendingApprovals.delete(token)
       }
-      setTimeout(() => this.liveNodeStatus.delete(workflow.id), LIVE_STATUS_LINGER_MS)
+      setTimeout(() => {
+        this.liveNodeStatus.delete(workflow.id)
+        this.liveNodeResults.delete(workflow.id)
+      }, LIVE_STATUS_LINGER_MS)
     }
     return { ok: runStatus !== 'error', runId, status: runStatus, message: runMessage }
   }
@@ -1511,6 +1530,19 @@ export class WorkflowRuntime {
           setLive(node.id, 'running')
           const nodeStartedAt = new Date()
           const inputJson = redact(safeJson(primary.json))
+          // Surface the input immediately so the run log shows it while the node runs.
+          this.setLiveResult(ctx.statusWorkflowId, {
+            nodeId: node.id,
+            status: 'running',
+            startedAt: nodeStartedAt.toISOString(),
+            finishedAt: '',
+            message: '',
+            outputJson: '',
+            inputJson,
+            retries: 0,
+            threadId: '',
+            error: ''
+          })
           const maxRetries = node.retries ?? 0
           let attempt = 0
           let produced: NodeOutcome | null = null
@@ -1558,7 +1590,7 @@ export class WorkflowRuntime {
             }
           }
           if (produced) {
-            nodeResults.push({
+            const result: WorkflowNodeRunResultV1 = {
               nodeId: node.id,
               status: 'success',
               startedAt: nodeStartedAt.toISOString(),
@@ -1569,13 +1601,15 @@ export class WorkflowRuntime {
               retries: attempt,
               threadId: produced.threadId ?? '',
               error: lastError ? redact(lastError) : ''
-            })
+            }
+            nodeResults.push(result)
+            this.setLiveResult(ctx.statusWorkflowId, result)
             setLive(node.id, 'success')
             outcome = produced
             output = produced.payload
             nodeOutputs[node.id] = produced.payload
           } else {
-            nodeResults.push({
+            const result: WorkflowNodeRunResultV1 = {
               nodeId: node.id,
               status: 'error',
               startedAt: nodeStartedAt.toISOString(),
@@ -1586,7 +1620,9 @@ export class WorkflowRuntime {
               retries: attempt,
               threadId: '',
               error: redact(lastError)
-            })
+            }
+            nodeResults.push(result)
+            this.setLiveResult(ctx.statusWorkflowId, result)
             setLive(node.id, 'error')
             status = 'error'
             errorMessage = redact(lastError)

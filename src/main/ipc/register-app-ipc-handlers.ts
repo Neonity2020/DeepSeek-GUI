@@ -514,6 +514,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     getWorkflowRuntime()?.status() ?? {
       runningWorkflowIds: [],
       nodeStatus: {},
+      nodeResults: {},
       powerSaveBlockerActive: false,
       pendingApprovals: []
     }
