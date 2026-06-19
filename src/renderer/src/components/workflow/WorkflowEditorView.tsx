@@ -162,6 +162,28 @@ function WorkflowEditorInner({
     [rfNodes, selectedNodeId]
   )
 
+  // Reverse-BFS the edges so the variable picker only offers reachable upstream nodes.
+  const upstreamNodes = useMemo(() => {
+    if (!selectedNodeId) return []
+    const incoming = new Map<string, string[]>()
+    for (const edge of rfEdges) {
+      const sources = incoming.get(edge.target) ?? []
+      sources.push(edge.source)
+      incoming.set(edge.target, sources)
+    }
+    const seen = new Set<string>()
+    const queue = [...(incoming.get(selectedNodeId) ?? [])]
+    while (queue.length) {
+      const id = queue.shift() as string
+      if (seen.has(id)) continue
+      seen.add(id)
+      for (const source of incoming.get(id) ?? []) queue.push(source)
+    }
+    return rfNodes
+      .filter((node) => seen.has(node.id))
+      .map((node) => ({ id: node.data.node.id, name: node.data.node.name, type: node.data.node.type }))
+  }, [rfEdges, rfNodes, selectedNodeId])
+
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setRfNodes((nodes) => applyNodeChanges(changes, nodes) as WorkflowFlowNode[])
     if (changes.some((change) => change.type !== 'select' && change.type !== 'dimensions')) {
@@ -716,6 +738,7 @@ function WorkflowEditorInner({
             onDelete={handleDeleteNode}
             onSavePreset={handleSavePreset}
             workflowName={name}
+            upstreamNodes={upstreamNodes}
           />
         </aside>
         ) : null}

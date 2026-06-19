@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Star, Trash2, X } from 'lucide-react'
+import { Braces, Plus, Star, Trash2, X } from 'lucide-react'
 import { ModelPicker } from './ModelPicker'
 import {
   SCHEDULE_REASONING_EFFORT_IDS,
@@ -71,6 +71,8 @@ type Props = {
   onSavePreset?: (node: WorkflowNodeV1, label: string) => void
   /** Current workflow name, used to render the local HTTP invocation example on the trigger. */
   workflowName?: string
+  /** Upstream nodes reachable from this one, for the {{$nodes.*}} variable picker. */
+  upstreamNodes?: { id: string; name: string; type: WorkflowNodeV1['type'] }[]
 }
 
 function Field({
@@ -273,6 +275,71 @@ function InputFieldsEditor({
   )
 }
 
+/** Dropdown that inserts {{...}} references (payload, scope, and upstream node outputs) at the focused field. */
+function VariablePicker({
+  upstreamNodes,
+  onInsert,
+  onClose
+}: {
+  upstreamNodes: { id: string; name: string; type: WorkflowNodeV1['type'] }[]
+  onInsert: (token: string) => void
+  onClose: () => void
+}): ReactElement {
+  const { t } = useTranslation('common')
+  const row =
+    'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-ds-ink transition hover:bg-ds-hover'
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute right-0 top-9 z-50 flex max-h-[60vh] w-[260px] flex-col overflow-y-auto rounded-xl border border-ds-border bg-ds-bg p-1.5 shadow-xl">
+        <p className="px-2 pb-1 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-ds-faint">
+          {t('workflowVarCommon')}
+        </p>
+        <button type="button" className={row} onClick={() => onInsert('{{text}}')}>
+          <span className="font-mono text-accent">{'{{text}}'}</span>
+        </button>
+        <button type="button" className={row} onClick={() => onInsert('{{json.}}')}>
+          <span className="font-mono text-accent">{'{{json.…}}'}</span>
+        </button>
+        <button type="button" className={row} onClick={() => onInsert('{{$env.}}')}>
+          <span className="font-mono text-accent">{'{{$env.…}}'}</span>
+        </button>
+        <button type="button" className={row} onClick={() => onInsert('{{$run.}}')}>
+          <span className="font-mono text-accent">{'{{$run.…}}'}</span>
+        </button>
+        {upstreamNodes.length > 0 ? (
+          <>
+            <p className="px-2 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-ds-faint">
+              {t('workflowVarUpstream')}
+            </p>
+            {upstreamNodes.map((upstream) => (
+              <div key={upstream.id} className="flex items-stretch gap-1">
+                <button
+                  type="button"
+                  className={`${row} min-w-0 flex-1`}
+                  onClick={() => onInsert(`{{$nodes.${upstream.id}.json.}}`)}
+                  title={`{{$nodes.${upstream.id}.json.…}}`}
+                >
+                  <span className="min-w-0 truncate">{upstream.name.trim() || t(`workflowNode_${upstream.type}`)}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-ds-faint">.json</span>
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md px-2 text-[10px] font-mono text-ds-faint transition hover:bg-ds-hover hover:text-ds-ink"
+                  onClick={() => onInsert(`{{$nodes.${upstream.id}.text}}`)}
+                  title={`{{$nodes.${upstream.id}.text}}`}
+                >
+                  .text
+                </button>
+              </div>
+            ))}
+          </>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
 export function NodeConfigPanel({
   node,
   settings,
@@ -280,12 +347,35 @@ export function NodeConfigPanel({
   onChange,
   onDelete,
   onSavePreset,
-  workflowName
+  workflowName,
+  upstreamNodes = []
 }: Props): ReactElement {
   const { t } = useTranslation('common')
 
   const [presetLabel, setPresetLabel] = useState('')
   const [presetSaved, setPresetSaved] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Tracks the most recently focused text field so the variable picker can splice a token at its caret.
+  const lastFocused = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+
+  const insertToken = (token: string): void => {
+    const el = lastFocused.current
+    setPickerOpen(false)
+    if (!el) return
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? el.value.length
+    const next = `${el.value.slice(0, start)}${token}${el.value.slice(end)}`
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+    setter?.call(el, next)
+    // Fire a native input event so the field's React onChange writes it back into config.
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    const caret = start + token.length
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
   // Debounced editor-time syntax check for the Code node (runs in the main process).
   const [codeCheck, setCodeCheck] = useState<WorkflowCodeCheckResult | null>(null)
   const codeValue = node && node.type === 'code' ? node.config.code : ''
@@ -328,18 +418,48 @@ export function NodeConfigPanel({
         <h2 className="text-[13px] font-semibold text-ds-ink">
           {t(`workflowNode_${node.type}`)}
         </h2>
-        <button
-          type="button"
-          onClick={() => onDelete(node.id)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-ds-border text-ds-muted transition hover:bg-red-500/10 hover:text-red-600"
-          title={t('workflowDeleteNode')}
-          aria-label={t('workflowDeleteNode')}
-        >
-          <Trash2 className="h-4 w-4" strokeWidth={1.8} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          {!node.type.endsWith('-trigger') ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPickerOpen((open) => !open)}
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                  pickerOpen
+                    ? 'border-accent/40 bg-accent/10 text-accent'
+                    : 'border-ds-border text-ds-muted hover:bg-ds-hover hover:text-ds-ink'
+                }`}
+                title={t('workflowVarPicker')}
+                aria-label={t('workflowVarPicker')}
+              >
+                <Braces className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+              {pickerOpen ? (
+                <VariablePicker upstreamNodes={upstreamNodes} onInsert={insertToken} onClose={() => setPickerOpen(false)} />
+              ) : null}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onDelete(node.id)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-ds-border text-ds-muted transition hover:bg-red-500/10 hover:text-red-600"
+            title={t('workflowDeleteNode')}
+            aria-label={t('workflowDeleteNode')}
+          >
+            <Trash2 className="h-4 w-4" strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"
+        onFocusCapture={(event) => {
+          const target = event.target
+          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+            lastFocused.current = target
+          }
+        }}
+      >
         <Field label={t('workflowNodeName')}>
           <input
             className={INPUT_CLASS}
