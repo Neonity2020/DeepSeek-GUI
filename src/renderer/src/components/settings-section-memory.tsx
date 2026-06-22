@@ -2,18 +2,19 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import { Ban, BrainCircuit, Eye, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { CoreMemoryRecordJson } from '../agent/kun-contract'
+import { confirmDialog } from '../lib/confirm-dialog'
 import { SettingsCard, SettingRow, Toggle } from './settings-controls'
 
 type MemoryScope = 'user' | 'workspace' | 'project'
 
-type MemoryDraft = {
+export type MemoryDraft = {
   content: string
   scope: MemoryScope
   tags: string
   confidence: number
 }
 
-type MemoryDialogState =
+export type MemoryDialogState =
   | { mode: 'create' }
   | { mode: 'view'; memory: CoreMemoryRecordJson }
   | { mode: 'edit'; memory: CoreMemoryRecordJson }
@@ -23,6 +24,71 @@ const EMPTY_DRAFT: MemoryDraft = {
   scope: 'workspace',
   tags: '',
   confidence: 1
+}
+
+const DEFAULT_DRAFT_SCOPE: MemoryScope = EMPTY_DRAFT.scope
+
+/**
+ * Canonicalize tag input/output so equality comparisons across the edit lifecycle
+ * (original record.tags array vs. user-typed string) operate on the same shape.
+ */
+export function serializeMemoryTags(tags: ReadonlyArray<string> | undefined | null): string {
+  if (!tags || tags.length === 0) return ''
+  return tags
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+/**
+ * Returns true when the dialog's draft has user-visible unsaved changes vs. its baseline.
+ * - view mode: never dirty (no draft).
+ * - edit mode: dirty if content, scope, or tag string differs from the original record.
+ * - create mode: dirty if any content/tags were typed or scope was changed from the default.
+ */
+export function isMemoryDraftDirty(
+  dialog: MemoryDialogState,
+  draft: MemoryDraft
+): boolean {
+  if (dialog.mode === 'view') return false
+  if (dialog.mode === 'edit') {
+    const original = dialog.memory
+    const originalTags = serializeMemoryTags(original.tags)
+    return (
+      draft.content !== original.content ||
+      draft.scope !== original.scope ||
+      draft.tags !== originalTags
+    )
+  }
+  // create
+  return (
+    draft.content.trim() !== '' ||
+    draft.tags.trim() !== '' ||
+    draft.scope !== DEFAULT_DRAFT_SCOPE
+  )
+}
+
+/**
+ * Guard a dialog close so that pending edits aren't silently discarded.
+ * Tests inject a stub `confirm` to assert the prompt-then-close lifecycle without a DOM.
+ */
+export async function attemptCloseMemoryDialog(args: {
+  dialog: MemoryDialogState | null
+  draft: MemoryDraft
+  confirm: () => Promise<boolean>
+  close: () => void
+}): Promise<{ prompted: boolean; closed: boolean }> {
+  const { dialog, draft, confirm, close } = args
+  if (!dialog || !isMemoryDraftDirty(dialog, draft)) {
+    close()
+    return { prompted: false, closed: true }
+  }
+  const ok = await confirm()
+  if (ok) {
+    close()
+    return { prompted: true, closed: true }
+  }
+  return { prompted: true, closed: false }
 }
 
 function projectForMemory(memory: CoreMemoryRecordJson): string | null {
@@ -78,6 +144,15 @@ export function MemorySettingsSection({ ctx }: { ctx: Record<string, any> }): Re
   const closeDialog = (): void => {
     setDialog(null)
     setDraft(EMPTY_DRAFT)
+  }
+
+  const requestCloseDialog = async (): Promise<void> => {
+    await attemptCloseMemoryDialog({
+      dialog,
+      draft,
+      confirm: () => confirmDialog(t('memoryDiscardConfirm'), t('memoryDiscardConfirmDetail')),
+      close: closeDialog
+    })
   }
 
   const parseTags = (raw: string): string[] =>
@@ -208,7 +283,7 @@ export function MemorySettingsSection({ ctx }: { ctx: Record<string, any> }): Re
                   >
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-ds-ink" title={memoryPreview(memory.content)}>
+                        <div className="truncate text-[13px] font-medium text-ds-ink" title={memory.content}>
                           {memoryPreview(memory.content)}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-ds-faint">
@@ -275,7 +350,7 @@ export function MemorySettingsSection({ ctx }: { ctx: Record<string, any> }): Re
           dialog={dialog}
           draft={draft}
           t={t}
-          onClose={closeDialog}
+          onClose={() => void requestCloseDialog()}
           onBeginEdit={beginEdit}
           onDraftChange={setDraft}
           onSave={() => void saveDraft()}
