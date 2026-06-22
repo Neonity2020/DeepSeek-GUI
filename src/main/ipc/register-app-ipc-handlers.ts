@@ -517,7 +517,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
     }
   )
 
-  ipcMain.handle('claw:task:run', async (_, taskId: unknown): Promise<ClawRunResult> => {
+  ipcMain.handle('claw:task:run', async (_, taskId: unknown): Promise<ScheduleRunResult> => {
     const normalizedTaskId = parseIpcPayload('claw:task:run', streamIdSchema, taskId)
     const scheduleRuntime = getScheduleRuntime()
     if (!scheduleRuntime) return { ok: false, message: 'Schedule runtime is not initialized.' }
@@ -529,6 +529,7 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       internalServerRunning: false,
       internalUrl: '',
       runningTaskIds: [],
+      queuedTaskIds: [],
       powerSaveBlockerActive: false
     }
   )

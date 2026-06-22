@@ -26,7 +26,7 @@ export type KunToolPermissionMode = (typeof KUN_TOOL_PERMISSION_MODES)[number]
 export type UiFontScale = 'small' | 'medium' | 'large'
 export type ScheduleRunMode = 'agent' | 'plan'
 export type ScheduleKind = 'manual' | 'interval' | 'daily' | 'at'
-export type ScheduleTaskStatus = 'idle' | 'running' | 'success' | 'error'
+export type ScheduleTaskStatus = 'idle' | 'queued' | 'running' | 'success' | 'error'
 export type ScheduleModel = 'deepseek-v4-pro' | 'deepseek-v4-flash'
 export type ScheduleReasoningEffort = 'auto' | 'off' | 'low' | 'medium' | 'high' | 'max'
 export type ClawRunMode = ScheduleRunMode
@@ -548,6 +548,12 @@ export type ScheduledTaskV1 = {
   model: string
   reasoningEffort: ScheduleReasoningEffort
   mode: ScheduleRunMode
+  /** Higher-priority queued tasks run first. */
+  priority?: number
+  /** Task ids that must have completed successfully before this task runs. */
+  dependsOn?: string[]
+  /** Run the task in an isolated worktree from workspaceRoot. */
+  useWorktree?: boolean
   schedule: ScheduledTaskScheduleV1
   createdAt: string
   updatedAt: string
@@ -1562,6 +1568,8 @@ export type ClawRunResult =
        * Absent on the fire-and-forget (no `waitForResult`) path.
        */
       completed?: boolean
+      /** The task was accepted by the background queue but has not started. */
+      queued?: boolean
     }
   | { ok: false; message: string }
 
@@ -1584,6 +1592,7 @@ export type ScheduleRuntimeStatus = {
   internalServerRunning: boolean
   internalUrl: string
   runningTaskIds: string[]
+  queuedTaskIds: string[]
   powerSaveBlockerActive: boolean
 }
 
