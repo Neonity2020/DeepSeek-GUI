@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, Tray } from 'electron'
-import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +14,7 @@ import { buildTrayMenuTemplate, parseTrayThreads, type TrayThreadSummary } from 
 import { configureLinuxWaylandImeSwitches } from './app-command-line'
 import { configureAppIdentity } from './app-identity'
 import { shouldStartHidden, syncLoginItemSettings } from './desktop-behavior'
+import { resolveLogDirectory, resolvePreloadPath } from './main-paths'
 import { runLegacyKunDataMigration } from './legacy-data-migration'
 import {
   applyKunRuntimePatch,
@@ -130,16 +130,6 @@ function syncWeixinBridgeRuntime(settings: AppSettingsV1): void {
 
 const runningClawScheduleMcpServer =
   process.argv.includes('--gui-schedule-mcp-server') || process.argv.includes('--claw-schedule-mcp-server')
-
-function resolveLogDirectory(): string {
-  return join(app.getPath('userData'), 'logs')
-}
-
-function resolvePreloadPath(): string {
-  const cjsPath = join(__dirname, '../preload/index.cjs')
-  if (existsSync(cjsPath)) return cjsPath
-  return join(__dirname, '../preload/index.mjs')
-}
 
 function getClawScheduleMcpLaunchConfig(): ClawScheduleMcpLaunchConfig {
   return {
@@ -1121,7 +1111,7 @@ async function restartRuntimeOnce(settings: AppSettingsV1): Promise<void> {
 
 function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   traceStartup('createWindow:start')
-  const preloadPath = resolvePreloadPath()
+  const preloadPath = resolvePreloadPath(__dirname)
   const usesDesktopTitleBar = process.platform === 'win32' || process.platform === 'linux'
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -1471,7 +1461,7 @@ app.whenReady().then(async () => {
     console.error('[claw-schedule-mcp] failed to sync config on startup:', error)
   })
 
-  logDir = resolveLogDirectory()
+  logDir = resolveLogDirectory(app)
   configureLogger({
     dir: logDir,
     enabled: initial.log.enabled,
@@ -1618,7 +1608,7 @@ app.whenReady().then(async () => {
     getAppVersion: () => app.getVersion(),
     readGuiUpdateState,
     loadGuiUpdaterModule,
-    resolveLogDirectory,
+    resolveLogDirectory: () => resolveLogDirectory(app),
     logError
   })
 
