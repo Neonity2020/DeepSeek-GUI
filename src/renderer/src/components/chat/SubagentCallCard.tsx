@@ -406,19 +406,11 @@ export function SubagentCallCard({
   const elapsed = useElapsed(status, block.createdAt, detail.durationMs)
   const steps = detail.toolInvocations
 
-  // Auto-expand once on first terminal transition iff summary/error present.
+  // Always start collapsed — both while running and after it finishes. The card
+  // only opens when the user clicks it (no auto-expand on terminal transition).
   const hasBody = Boolean(detail.summary?.trim() || detail.error?.trim())
   const [userToggled, setUserToggled] = useState<boolean | null>(null)
-  const autoExpandedRef = useRef(false)
-  const [autoExpanded, setAutoExpanded] = useState(false)
-  useEffect(() => {
-    if (autoExpandedRef.current) return
-    if (isTerminal(status) && hasBody && !inGroup) {
-      autoExpandedRef.current = true
-      setAutoExpanded(true)
-    }
-  }, [status, hasBody, inGroup])
-  const expanded = (userToggled ?? autoExpanded) && hasBody
+  const expanded = (userToggled ?? false) && hasBody
 
   // `meta.child` is only attached on the live child events (which the renderer
   // currently drops), so for a completed delegation the reliable source of the
