@@ -25,13 +25,49 @@ export function claudeSubscriptionStatus(): ClaudeSubscriptionStatus {
 }
 
 /**
+ * Resolve the Claude Code binary that the Agent SDK bundles as a per-platform
+ * optional dependency (`@anthropic-ai/claude-agent-sdk-<plat>-<arch>/claude`).
+ * Using it means the user needs NO separate CLI install. Returns the first
+ * existing candidate under the given kun roots, or undefined to fall back to a
+ * `claude` on PATH.
+ */
+export function resolveBundledClaudeBinary(kunRoots: readonly string[]): string | undefined {
+  const arch =
+    process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : undefined
+  const platform =
+    process.platform === 'darwin'
+      ? 'darwin'
+      : process.platform === 'win32'
+        ? 'win32'
+        : process.platform === 'linux'
+          ? 'linux'
+          : undefined
+  if (!arch || !platform) return undefined
+  const binName = platform === 'win32' ? 'claude.exe' : 'claude'
+  const pkgs =
+    platform === 'linux'
+      ? [
+          `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`,
+          `@anthropic-ai/claude-agent-sdk-${platform}-${arch}-musl`
+        ]
+      : [`@anthropic-ai/claude-agent-sdk-${platform}-${arch}`]
+  for (const root of kunRoots) {
+    for (const pkg of pkgs) {
+      const candidate = join(root, 'node_modules', pkg, binName)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return undefined
+}
+
+/**
  * Run `claude setup-token`, opening the user's browser for OAuth, and resolve
  * with the captured token. Defensive: a missing CLI, timeout, or non-zero exit
  * all resolve to `{ ok:false }` so the UI can fall back to manual paste.
  * `spawnFn` is injectable for tests.
  */
 export function runClaudeSetupToken(
-  options: { spawnFn?: typeof spawn; timeoutMs?: number } = {}
+  options: { spawnFn?: typeof spawn; timeoutMs?: number; binaryPath?: string } = {}
 ): Promise<ClaudeSubscriptionLoginResult> {
   const spawnFn = options.spawnFn ?? spawn
   const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000
@@ -63,9 +99,11 @@ export function runClaudeSetupToken(
     }
 
     try {
-      child = spawnFn('claude', ['setup-token'], {
+      // Prefer the SDK's bundled binary (no separate install); fall back to a
+      // `claude` on PATH only when it couldn't be resolved.
+      child = spawnFn(options.binaryPath ?? 'claude', ['setup-token'], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: process.platform === 'win32',
+        shell: !options.binaryPath && process.platform === 'win32',
         env: process.env
       })
     } catch (err) {
