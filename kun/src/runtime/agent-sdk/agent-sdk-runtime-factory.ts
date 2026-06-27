@@ -16,6 +16,18 @@ import type { ToolHostContext } from '../../ports/tool-host.js'
 import type { ApprovalPolicy } from '../../contracts/policy.js'
 import type { ServeProviderConfig } from '../../config/kun-config.js'
 import type { AttachmentStore } from '../../attachments/attachment-store.js'
+import type { SkillRuntime } from '../../skills/skill-runtime.js'
+import type { MemoryStore } from '../../memory/memory-store.js'
+import {
+  PLAN_MODE_INSTRUCTION,
+  goalContinuationInstruction,
+  todoContinuationInstruction,
+  memoryInstructions
+} from '../../loop/agent-loop.js'
+import {
+  buildHistoryTranscript,
+  DEFAULT_SDK_HISTORY_TRANSCRIPT_MAX_BYTES
+} from './sdk-context-assembler.js'
 
 export interface AgentSdkRuntimeFactoryDeps {
   registry: CapabilityRegistry
@@ -36,6 +48,12 @@ export interface AgentSdkRuntimeFactoryDeps {
   defaultToken?: string
   /** Resolves a turn's image attachments so they can be forwarded to the model. */
   attachmentStore?: AttachmentStore
+  /** Skill engine — injects the available-skills catalog + activated skills per turn. */
+  skillRuntime?: SkillRuntime
+  /** Long-term memory store — injects relevant memories per turn. */
+  memoryStore?: MemoryStore
+  /** Cap for the replayed history transcript (bytes); defaults to the assembler's. */
+  historyTranscriptMaxBytes?: number
   pathToClaudeCodeExecutable?: string
 }
 
@@ -50,8 +68,10 @@ function loadAgentSdk(): Promise<SdkApi> {
 }
 
 export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSdkRuntime {
-  // SDK session ids per thread, for multi-turn resume. In-memory is acceptable:
-  // a runtime restart simply starts a fresh SDK session (kun owns canonical history).
+  // Last SDK session id per thread, recorded for diagnostics only. We do NOT
+  // resume from it: kun owns the canonical history and replays it as a transcript
+  // every turn (see loadTurnContext), which — unlike the SDK's in-memory resume —
+  // survives a provider switch mid-thread and a runtime restart.
   const sessionIds = new Map<string, string>()
 
   const toolContext = (threadId: string, turnId: string, workspace: string): ToolHostContext => ({
@@ -117,16 +137,62 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
         inputSchema: spec.inputSchema
       }))
 
+      // The SDK doesn't see kun's history or per-turn context, so assemble both
+      // here (parity with the native loop's `contextInstructions`). kun owns the
+      // canonical history, so we replay it as a transcript every turn rather than
+      // relying on the SDK's in-memory resume (lost on provider switch / restart).
+      const historyTranscript = buildHistoryTranscript(
+        items,
+        turnId,
+        deps.historyTranscriptMaxBytes ?? DEFAULT_SDK_HISTORY_TRANSCRIPT_MAX_BYTES
+      )
+
+      // Plan turns: per-turn mode override wins over the thread mode, matching the
+      // native loop. A plan turn suppresses goal/todo continuation and injects the
+      // plan-mode instruction (the SDK already gets the 'plan' permission posture
+      // via ctx.planMode -> mapApprovalPolicyToPermissionMode).
+      const turn = thread.turns.find((entry) => entry.id === turnId)
+      const planMode = (turn?.mode ?? thread.mode) === 'plan' || Boolean(turn?.guiPlan)
+
+      const skillResolution = deps.skillRuntime
+        ? await deps.skillRuntime.resolveTurn({ prompt: userText, workspace: thread.workspace })
+        : undefined
+
+      let memoryBlocks: string[] = []
+      if (deps.memoryStore && userText.trim()) {
+        const memories = await deps.memoryStore.retrieve({
+          query: userText,
+          workspace: thread.workspace,
+          limit: 8
+        })
+        deps.memoryStore.setLastInjected(memories.map((memory) => memory.id))
+        memoryBlocks = memoryInstructions(memories)
+      }
+
+      const goalInstruction = planMode ? null : goalContinuationInstruction(thread.goal)
+      const todoInstruction = planMode ? null : todoContinuationInstruction(thread.todos)
+
+      const contextInstructions = [
+        ...(planMode ? [PLAN_MODE_INSTRUCTION] : []),
+        ...(goalInstruction ? [goalInstruction] : []),
+        ...(todoInstruction ? [todoInstruction] : []),
+        ...memoryBlocks,
+        ...(skillResolution?.catalogInstruction ? [skillResolution.catalogInstruction] : []),
+        ...(skillResolution?.instructions ?? [])
+      ]
+
       return {
         workspace: thread.workspace,
         userText,
         threadPersona: thread.systemPrompt?.trim() || undefined,
         approvalPolicy: deps.defaultApprovalPolicy,
+        planMode,
         model: thread.model || undefined,
-        resumeSessionId: sessionIds.get(threadId),
         oauthToken: token || undefined,
         ...(images.length ? { images } : {}),
-        bridgeableTools
+        bridgeableTools,
+        ...(historyTranscript ? { historyTranscript } : {}),
+        ...(contextInstructions.length ? { contextInstructions } : {})
       }
     },
 

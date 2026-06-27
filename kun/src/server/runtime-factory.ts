@@ -458,7 +458,9 @@ export async function createKunServeRuntime(
           defaultApprovalPolicy: options.approvalPolicy,
           defaultIsAgentSdk,
           defaultToken: options.apiKey,
+          skillRuntime,
           ...(attachmentStore ? { attachmentStore } : {}),
+          ...(memoryStore ? { memoryStore } : {}),
           ...(process.env.KUN_CLAUDE_BINARY
             ? { pathToClaudeCodeExecutable: process.env.KUN_CLAUDE_BINARY }
             : {})

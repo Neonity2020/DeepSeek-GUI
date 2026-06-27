@@ -396,7 +396,7 @@ function formatLocalDateTimeForPrompt(nowIso: string, timeZone?: string): string
   }
 }
 
-function goalContinuationInstruction(goal: ThreadGoal | undefined): string | null {
+export function goalContinuationInstruction(goal: ThreadGoal | undefined): string | null {
   if (!goal || goal.status !== 'active') return null
   const tokenBudget = goal.tokenBudget == null ? 'none' : String(goal.tokenBudget)
   const remainingTokens = goal.tokenBudget == null
@@ -501,7 +501,7 @@ function charBigramCounts(text: string): Map<string, number> {
   return counts
 }
 
-function todoContinuationInstruction(todos: ThreadTodoList | undefined): string | null {
+export function todoContinuationInstruction(todos: ThreadTodoList | undefined): string | null {
   const items = todos?.items ?? []
   if (items.length === 0) return null
   const rows = items.slice(0, 50).map((item, index) => {
@@ -3152,7 +3152,7 @@ function autoModelRouteKey(threadId: string, turnId: string): string {
   return `${threadId}:${turnId}`
 }
 
-function memoryInstructions(memories: Array<{ id: string; content: string; scope: string }>): string[] {
+export function memoryInstructions(memories: Array<{ id: string; content: string; scope: string }>): string[] {
   if (memories.length === 0) return []
   return [
     [

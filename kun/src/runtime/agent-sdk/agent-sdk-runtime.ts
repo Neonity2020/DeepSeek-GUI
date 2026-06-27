@@ -26,6 +26,7 @@ import {
   type BridgeableTool,
   type KunToolResult
 } from './sdk-tool-bridge.js'
+import { composeSdkPromptText } from './sdk-context-assembler.js'
 import type { SdkApi } from './sdk-protocol.js'
 
 export type TurnStatus = 'completed' | 'failed' | 'aborted'
@@ -48,6 +49,17 @@ export interface SdkTurnContext {
   images?: Array<{ mediaType: string; base64: string }>
   /** kun tool catalog to consider bridging (overlap/excluded are filtered here). */
   bridgeableTools: BridgeableTool[]
+  /**
+   * Prior-conversation transcript replayed each turn so the model has kun's
+   * canonical history (the SDK doesn't see it otherwise). '' / absent => none.
+   */
+  historyTranscript?: string
+  /**
+   * Per-turn instruction blocks injected after the history (skill catalog,
+   * activated skills, memories, goal/todo continuation, plan instruction).
+   * Mirrors the native loop's `contextInstructions`.
+   */
+  contextInstructions?: string[]
 }
 
 /**
@@ -173,10 +185,19 @@ export class AgentSdkRuntime {
           : {})
       })
 
+      // kun owns canonical history, so each SDK turn is stateless: replay the
+      // prior conversation + per-turn instructions as text and end with the live
+      // request. (Deliberately NOT using the SDK's `resume` — it's lost on a
+      // provider switch or runtime restart; the transcript survives both.)
+      const composedText = composeSdkPromptText({
+        ...(ctx.historyTranscript ? { historyTranscript: ctx.historyTranscript } : {}),
+        userText: ctx.userText,
+        ...(ctx.contextInstructions?.length ? { instructionBlocks: ctx.contextInstructions } : {})
+      })
       const prompt =
         ctx.images && ctx.images.length > 0
-          ? userMessageStream(ctx.userText, ctx.images)
-          : ctx.userText
+          ? userMessageStream(composedText, ctx.images)
+          : composedText
       const stream = sdk.query({ prompt, options })
       for await (const message of stream) {
         if (signal.aborted) {
