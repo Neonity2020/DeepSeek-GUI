@@ -407,7 +407,12 @@ export class CompatModelClient implements ModelClient {
       return { kind: 'response', response }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const proxyHint = this.config.modelProxyUrl?.trim()
+      // Only blame the proxy for genuine transport failures. A user-initiated
+      // abort (turn cancelled, idle-timeout watchdog) also surfaces here as an
+      // AbortError but has nothing to do with the proxy — don't send the user
+      // chasing a proxy that is working fine.
+      const aborted = error instanceof Error && error.name === 'AbortError'
+      const proxyHint = !aborted && this.config.modelProxyUrl?.trim()
         ? '. Check the configured model-request proxy in Settings > Providers.'
         : ''
       return { kind: 'error', message: `model request failed: ${message}${proxyHint}` }

@@ -10,6 +10,11 @@ import { upstreamOpenAiModelsUrl } from '../shared/openai-compat-url'
 import { fetchWithOptionalProxy } from './proxy-fetch'
 
 const PROBE_TIMEOUT_MS = 10_000
+// The proxy-vs-direct diagnosis runs only after the proxied probe already
+// failed, so it gets a shorter budget — we just need to learn whether the
+// provider is reachable at all, not wait out another full timeout (which would
+// make a failed test connection take up to 20s).
+const DIRECT_PROBE_TIMEOUT_MS = 5_000
 const ANTHROPIC_VERSION = '2023-06-01'
 
 type ProviderProbeFetch = typeof fetchWithOptionalProxy
@@ -95,7 +100,7 @@ async function directProviderReachable(
     const response = await fetcher(url, {
       method: 'GET',
       headers: providerProbeHeaders(endpointFormat, apiKey),
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
+      signal: AbortSignal.timeout(DIRECT_PROBE_TIMEOUT_MS)
     }, '')
     await response.body?.cancel().catch(() => undefined)
     return true
