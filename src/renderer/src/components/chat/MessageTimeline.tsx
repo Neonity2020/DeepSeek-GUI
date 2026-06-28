@@ -29,6 +29,7 @@ import {
   type Turn
 } from './message-timeline-turns'
 import { extractPlanMetadataFromBlock } from '../../plan/plan-tool'
+import { InjectedMemoryLookupProvider } from './injected-memory-lookup'
 import { planDisplayNameFromRelativePath } from '../../plan/plan-path'
 
 export { summarizeToolBlock } from './message-timeline-process'
@@ -262,6 +263,7 @@ export function MessageTimeline({
   }
 
   return (
+    <InjectedMemoryLookupProvider workspaceRoot={workspaceRoot}>
     <div ref={containerRef} className="ds-no-drag relative flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
       {visibleTurnAnchors.length > 2 ? (
         <nav
@@ -282,7 +284,7 @@ export function MessageTimeline({
           ))}
         </nav>
       ) : null}
-      <div className={`ds-message-timeline-content ds-chat-column-inset mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-8 pt-8 ${
+      <div className={`ds-message-timeline-content ds-chat-column-inset ds-chat-content-max-width mx-auto flex w-full min-w-0 flex-col gap-8 pt-8 ${
         goalTimelinePaddingClass(heroRoute, Boolean(activeThreadGoal))
       }`}>
         {!hasContent || !activeThreadId ? (
@@ -416,6 +418,7 @@ export function MessageTimeline({
         <div ref={endRef} aria-hidden className="h-px w-full shrink-0" />
       </div>
     </div>
+    </InjectedMemoryLookupProvider>
   )
 }
 

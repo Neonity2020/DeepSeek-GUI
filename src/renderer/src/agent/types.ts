@@ -81,6 +81,7 @@ export type RuntimeDisclosureMetadata = {
   generatedFiles?: GeneratedFileReference[]
   activeSkillIds?: string[]
   injectedMemoryIds?: string[]
+  injectedMemorySummaries?: Array<{ id: string; content: string }>
   skillInjectionBytes?: number
   child?: RuntimeChildMetadata
   sources?: WebCitationSource[]
@@ -513,7 +514,7 @@ export interface AgentProvider {
     attachmentId: string,
     options?: { threadId?: string; workspace?: string }
   ): Promise<CoreAttachmentContentResponseJson>
-  listMemories?(options?: { workspace?: string; includeDeleted?: boolean }): Promise<CoreMemoryRecordJson[]>
+  listMemories?(options?: { workspace?: string; includeDeleted?: boolean; all?: boolean }): Promise<CoreMemoryRecordJson[]>
   createMemory?(input: {
     content: string
     scope?: 'user' | 'workspace' | 'project'
